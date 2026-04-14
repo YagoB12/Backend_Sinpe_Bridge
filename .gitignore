@@ -1,0 +1,46 @@
+
+# Build results
+bin/
+obj/
+out/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userprefs
+*.cache
+*.vs
+.vscode/
+
+# Visual Studio service dependencies
+Properties/serviceDependencies.json
+Properties/serviceDependencies.local.json
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Logs
+*.log
+logs/
+
+# Env files
+*.env
+*.env.*
+secrets.json
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+
+# SQL / EF
+Migrations/**/obj/
+*.dbmdl
+
+# IIS / Server
+iisexpress/
+wwwroot/lib/
+``
