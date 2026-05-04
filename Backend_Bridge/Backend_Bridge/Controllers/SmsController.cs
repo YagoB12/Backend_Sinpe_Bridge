@@ -1,3 +1,4 @@
+using Backend_Bridge.DTO;
 using Backend_Bridge.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -5,11 +6,14 @@ using Microsoft.AspNetCore.Mvc;
 [Route("sms")]
 public class SmsController : ControllerBase
 {
+    // lista de prueba para GET de SmsLog
+    private static readonly List<SmsLog> _mockDatabase = new List<SmsLog>();
+
     private readonly SmsService _smsService;
 
-    public SmsController()
+    public SmsController(SmsService smsService)
     {
-        _smsService = new SmsService();
+        _smsService = smsService;
     }
 
     [HttpPost]
@@ -32,6 +36,30 @@ public class SmsController : ControllerBase
 
         Console.WriteLine($"SMS válido recibido: {request.Message}");
 
-        return Ok(new { message = "SMS válido procesado correctamente" });
+        var newLog = new SmsLog
+        {
+            Id = _mockDatabase.Count + 1,
+            SenderNumber = request.Sender,
+            MessageBody = request.Message,
+            ReceivedAt = DateTime.Now,
+            IsProcessed = false,
+            IsValidOrigin = true // Ya pasó la validación de arriba
+        };
+
+        _mockDatabase.Add(newLog);
+
+        return Ok(new
+        {
+            message = "SMS válido procesado y guardado correctamente",
+            logId = newLog.Id
+        });
+
+        //return Ok(new { message = "SMS válido procesado correctamente" });
+    }
+
+    [HttpGet("logs")]
+    public IActionResult GetLogs()
+    {
+        return Ok(_mockDatabase);
     }
 }
