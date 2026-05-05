@@ -1,4 +1,5 @@
-﻿using Backend_Bridge.DTO;
+﻿
+using Backend_Bridge.Models;
 
 namespace Backend_Bridge.Services
 {
