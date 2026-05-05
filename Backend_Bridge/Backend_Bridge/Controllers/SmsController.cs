@@ -1,4 +1,4 @@
-using Backend_Bridge.DTO;
+using Backend_Bridge.Data;
 using Backend_Bridge.Services;
 using Backend_Bridge.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -9,11 +9,14 @@ public class SmsController : ControllerBase
 {
     private readonly SmsService _smsService;
     private readonly ISmsParserService _smsParserService;
+    private readonly PaymentValidationService _paymentValidationService;
 
-    public SmsController(SmsService smsService, ApplicationDbContext context)
+    public SmsController(SmsService smsService, ISmsParserService smsParserService, PaymentValidationService paymentValidationService, ApplicationDbContext context)
     {
         _smsService = smsService;
         _smsParserService = smsParserService;
+        _paymentValidationService = paymentValidationService;
+
     }
 
     [HttpPost]
