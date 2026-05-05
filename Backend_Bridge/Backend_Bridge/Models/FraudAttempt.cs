@@ -1,4 +1,4 @@
-﻿namespace Backend_Bridge.DTO
+﻿namespace Backend_Bridge.Models
 {
     public class FraudAttempt
     {

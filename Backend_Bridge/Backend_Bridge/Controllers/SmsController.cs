@@ -8,11 +8,15 @@ using Microsoft.AspNetCore.Mvc;
 [Route("sms")]
 public class SmsController : ControllerBase
 {
+    private readonly ApplicationDbContext _context;
     private readonly SmsService _smsService;
+    private readonly PaymentValidationService _paymentValidationService;
 
-    public SmsController(SmsService smsService)
+    public SmsController(ApplicationDbContext context, SmsService smsService, PaymentValidationService paymentValidationService)
     {
         _smsService = smsService;
+        _paymentValidationService = paymentValidationService;
+        _context = context;
     }
 
     [HttpPost]
