@@ -1,21 +1,26 @@
-using Backend_Bridge.Services;
+﻿using Backend_Bridge.Services;
+using Backend_Bridge.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
 
-// Se agrega SmsService
+// 🔹 Servicio propio
 builder.Services.AddScoped<SmsService>();
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+//Conexión a base de datos
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Swagger en desarrollo
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
