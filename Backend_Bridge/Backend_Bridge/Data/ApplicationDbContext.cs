@@ -11,5 +11,6 @@ namespace Backend_Bridge.Data
         }
 
         public DbSet<SmsLog> SmsLogs { get; set; }
+        public DbSet<Order> Orders { get; set; }
     }
 }
