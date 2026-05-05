@@ -1,5 +1,6 @@
-﻿using Backend_Bridge.Services;
-using Backend_Bridge.Data;
+﻿using Backend_Bridge.Data;
+using Backend_Bridge.Services;
+using Backend_Bridge.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +10,8 @@ builder.Services.AddControllers();
 
 // 🔹 Servicio propio
 builder.Services.AddScoped<SmsService>();
+
+builder.Services.AddScoped<ISmsParserService, SmsParserService>();
 
 //Conexión a base de datos
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

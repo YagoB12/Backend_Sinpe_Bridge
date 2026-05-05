@@ -1,7 +1,6 @@
 using Backend_Bridge.DTO;
 using Backend_Bridge.Services;
-using Backend_Bridge.Data;
-using Backend_Bridge.Models;
+using Backend_Bridge.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
@@ -9,52 +8,50 @@ using Microsoft.AspNetCore.Mvc;
 public class SmsController : ControllerBase
 {
     private readonly SmsService _smsService;
-    private readonly ApplicationDbContext _context;
+    private readonly ISmsParserService _smsParserService;
 
-    public SmsController(SmsService smsService, ApplicationDbContext context)
+    public SmsController(SmsService smsService, ISmsParserService smsParserService)
     {
         _smsService = smsService;
-        _context = context;
+        _smsParserService = smsParserService;
     }
 
     [HttpPost]
     public IActionResult ReceiveSms([FromBody] SmsReceive request)
     {
-        if (request == null || string.IsNullOrEmpty(request.Message))
-            return BadRequest("SMS inválido");
+        if (request == null)
+            return BadRequest("La solicitud no puede estar vacía.");
 
-        // Validación de remitente
+        if (string.IsNullOrWhiteSpace(request.Sender))
+            return BadRequest("El remitente es obligatorio.");
+
+        if (string.IsNullOrWhiteSpace(request.Message))
+            return BadRequest("El mensaje SMS es obligatorio.");
+
         if (!_smsService.IsValidSender(request.Sender))
-            return BadRequest("Remitente no válido");
+            return BadRequest("Remitente no válido.");
 
-        // Filtro de spam
         if (!_smsService.IsValidSinpeMessage(request.Message))
-            return BadRequest("Mensaje no corresponde a SINPE");
+            return BadRequest("Mensaje no corresponde a SINPE.");
 
-        var newLog = new SmsLog
-        {
-            SenderNumber = request.Sender,
-            MessageBody = request.Message,
-            ReceivedAt = DateTime.Now,
-            IsProcessed = false,
-            IsValidOrigin = true
-        };
+        var newLog = _smsService.SaveSms(request.Sender, request.Message);
 
-        //GUARDAR EN BD REAL
-        _context.SmsLogs.Add(newLog);
-        _context.SaveChanges();
+        var parsedSms = _smsParserService.Parse(request.Message);
 
         return Ok(new
         {
-            message = "SMS guardado en base de datos",
-            logId = newLog.Id
+            message = "SMS recibido, validado, guardado y analizado correctamente.",
+            logId = newLog.Id,
+            sender = newLog.SenderNumber,
+            receivedAt = newLog.ReceivedAt,
+            parsedData = parsedSms
         });
     }
 
     [HttpGet("logs")]
     public IActionResult GetLogs()
     {
-        var logs = _context.SmsLogs.ToList();
+        var logs = _smsService.GetLogs();
         return Ok(logs);
     }
 }
