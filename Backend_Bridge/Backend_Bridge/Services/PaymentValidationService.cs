@@ -1,57 +1,59 @@
-﻿
-using Backend_Bridge.Models;
+﻿using Backend_Bridge.Data;
+using Backend_Bridge.Models; // Asegúrate de usar el namespace correcto donde están Payment y FraudAttempt
+
 
 namespace Backend_Bridge.Services
 {
     public class PaymentValidationService
     {
-        // CAMBIO: Ahora usamos tu nueva entidad Payment en lugar de una lista de strings
-        private static readonly List<Payment> _mockPayments = new List<Payment>();
+        private readonly ApplicationDbContext _context;
 
-        // Simulamos la tabla de Fraudes (Tarea #156)
-        private static readonly List<FraudAttempt> _mockFraudAttempts = new List<FraudAttempt>();
+        public PaymentValidationService(ApplicationDbContext context)
+        {
+            _context = context;
+        }
 
-        // Tarea #155: Implementar validación de referencia duplicada
+        // validacion para referencia duplicada
         public (bool IsValid, string Message) ValidateReference(string reference, decimal amount, string senderNumber)
         {
-            // Tarea #157: Lógica de rechazo automático
-            // Buscamos si ya existe algún pago con esa misma referencia
-            bool isDuplicate = _mockPayments.Any(p => p.Reference == reference);
+            bool isDuplicate = _context.Payments.Any(p => p.Reference == reference);
 
             if (isDuplicate)
             {
-                // Disparamos la alerta y guardamos el fraude
+
                 HandleFraudAttempt(reference, "Referencia Duplicada");
                 return (false, "Pago rechazado: La referencia ya fue procesada anteriormente.");
             }
 
-            // Si pasa la validación, guardamos el nuevo pago en nuestra tabla falsa
+            // aqui se guarda el nuevo pago
             var newPayment = new Payment
             {
-                Id = _mockPayments.Count + 1,
                 Reference = reference,
                 Amount = amount,
                 PaymentDate = DateTime.Now,
                 SenderNumber = senderNumber
             };
-            _mockPayments.Add(newPayment);
+
+            _context.Payments.Add(newPayment);
+            _context.SaveChanges();
 
             return (true, "Referencia válida y pago registrado en el sistema.");
         }
 
+        // guardado de intentos de fraude
         private void HandleFraudAttempt(string reference, string fraudType)
         {
-            // Guardamos el intento en nuestra tabla falsa
             var fraud = new FraudAttempt
             {
-                Id = _mockFraudAttempts.Count + 1,
                 FraudType = fraudType,
                 Reference = reference,
                 AttemptDate = DateTime.Now
             };
-            _mockFraudAttempts.Add(fraud);
 
-            // Tarea #158: Implementar notificación al administrador
+            _context.FraudAttempts.Add(fraud);
+            _context.SaveChanges();
+
+            // notificación al administrador
             Console.WriteLine("==================================================");
             Console.WriteLine("⚠️ URGENTE: ALERTA DE FRAUDE ENVIADA AL ADMINISTRADOR");
             Console.WriteLine($"Tipo: {fraud.FraudType}");
@@ -60,14 +62,15 @@ namespace Backend_Bridge.Services
             Console.WriteLine("==================================================");
         }
 
+        // Métodos para verlos en Swagger
         public IEnumerable<FraudAttempt> GetFraudLogs()
         {
-            return _mockFraudAttempts;
+            return _context.FraudAttempts.ToList();
         }
 
         public IEnumerable<Payment> GetPayments()
         {
-            return _mockPayments;
+            return _context.Payments.ToList();
         }
     }
 }
