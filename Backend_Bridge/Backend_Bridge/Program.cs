@@ -1,9 +1,10 @@
-using Backend_Bridge.Services;
+﻿using Backend_Bridge.Services;
+using Backend_Bridge.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
 
 // Se agregan los servicios
@@ -16,7 +17,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Swagger en desarrollo
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

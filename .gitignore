@@ -13,6 +13,11 @@ out/
 *.vs
 .vscode/
 
+# SQL Server (NO subir BD)
+*.mdf
+*.ldf
+*.ndf
+
 # Visual Studio service dependencies
 Properties/serviceDependencies.json
 Properties/serviceDependencies.local.json
