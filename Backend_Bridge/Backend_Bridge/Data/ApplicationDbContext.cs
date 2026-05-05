@@ -11,6 +11,17 @@ namespace Backend_Bridge.Data
         }
 
         public DbSet<SmsLog> SmsLogs { get; set; }
-        public DbSet<Order> Orders { get; set; }
+
+        public DbSet<Payment> Payments { get; set; }
+        public DbSet<FraudAttempt> FraudAttempts { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<Payment>()
+                .HasIndex(p => p.Reference)
+                .IsUnique();
+        }
     }
 }
