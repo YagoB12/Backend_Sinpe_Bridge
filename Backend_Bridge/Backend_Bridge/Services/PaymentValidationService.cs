@@ -1,5 +1,5 @@
 ﻿using Backend_Bridge.Data;
-using Backend_Bridge.Models; // Asegúrate de usar el namespace correcto donde están Payment y FraudAttempt
+using Backend_Bridge.Models;
 
 
 namespace Backend_Bridge.Services
