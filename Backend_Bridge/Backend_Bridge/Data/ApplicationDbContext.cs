@@ -15,6 +15,8 @@ namespace Backend_Bridge.Data
         public DbSet<Payment> Payments { get; set; }
         public DbSet<FraudAttempt> FraudAttempts { get; set; }
 
+        public DbSet<Order> Orders { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
