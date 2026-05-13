@@ -1,5 +1,6 @@
-﻿using Backend_Bridge.Models;
-using Backend_Bridge.Data;
+﻿using Backend_Bridge.Data;
+using Backend_Bridge.Models;
+using System.Globalization;
 
 namespace Backend_Bridge.Services
 {
@@ -10,6 +11,54 @@ namespace Backend_Bridge.Services
         public PaymentValidationService(ApplicationDbContext context)
         {
             _context = context;
+        }
+        //RF-03-> Verificar la hora real del pago
+        public (bool IsValid, string Message) ValidateTimeReference(string reference, Order order)
+        {
+            // =========================
+            // EXTRAER FECHA
+            // =========================
+            string datePart = reference.Substring(0, 14);
+
+            bool isValidDate = DateTime.TryParseExact(
+                datePart,
+                "yyyyMMddHHmmss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out DateTime paymentDate
+            );
+
+            if (!isValidDate)
+            {
+                order.Status = "SUSPECTED";
+
+                _context.SaveChanges();
+
+                return (
+                    false,
+                    "La referencia no contiene una fecha válida."
+                );
+            }
+            // =========================
+            // VALIDAR TIEMPO
+            // =========================
+            TimeSpan difference = paymentDate - order.CreatedAt;
+             
+            if (difference.TotalMinutes > 15)
+            {
+                order.Status = " SUSPECTED";
+
+                _context.SaveChanges();
+
+                return (
+                    false,
+                    $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos. Resolución manual requerida."
+                );
+            }
+            return (
+                      true,
+                      $"Pago Exitoso."
+                  );
         }
 
         //RF-04 → SOLO VALIDAR (NO guardar)
@@ -34,7 +83,10 @@ namespace Backend_Bridge.Services
 
             if (order == null)
                 return (false, "No existe una orden pendiente para este cliente.");
-
+            var verifyTime = ValidateTimeReference(reference, order);//Rf-03
+            if (!verifyTime.IsValid) {
+                return verifyTime;
+            }
             if (order.Amount == amount)
             {
                 //marcar orden como pagada

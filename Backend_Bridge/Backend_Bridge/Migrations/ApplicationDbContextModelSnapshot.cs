@@ -43,7 +43,7 @@ namespace Backend_Bridge.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("FraudAttempts");
+                    b.ToTable("FraudAttempts", (string)null);
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.Order", b =>
@@ -70,7 +70,7 @@ namespace Backend_Bridge.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Orders");
+                    b.ToTable("Orders", (string)null);
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.Payment", b =>
@@ -100,7 +100,7 @@ namespace Backend_Bridge.Migrations
                     b.HasIndex("Reference")
                         .IsUnique();
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.SmsLog", b =>
@@ -130,7 +130,7 @@ namespace Backend_Bridge.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("SmsLogs");
+                    b.ToTable("SmsLogs", (string)null);
                 });
 #pragma warning restore 612, 618
         }
