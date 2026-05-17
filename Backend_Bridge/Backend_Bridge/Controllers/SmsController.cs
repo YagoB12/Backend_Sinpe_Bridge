@@ -29,6 +29,9 @@ namespace Backend_Bridge.Controllers
             // =========================
             // VALIDACIONES INICIALES
             // =========================
+            if (string.IsNullOrWhiteSpace(request.CustomerPhone))
+                return BadRequest("El número de teléfono del cliente es obligatorio.");
+
             if (request == null)
                 return BadRequest("La solicitud no puede estar vacía.");
 
@@ -72,7 +75,8 @@ namespace Backend_Bridge.Controllers
             var amountValidation = _paymentValidationService.ValidateAmount(
                 parsedSms.Amount,
                 parsedSms.PayerName,
-                parsedSms.Reference
+                parsedSms.Reference,
+                request.CustomerPhone
             );
 
             if (!amountValidation.IsValid)

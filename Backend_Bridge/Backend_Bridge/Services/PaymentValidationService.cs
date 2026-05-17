@@ -62,16 +62,28 @@ namespace Backend_Bridge.Services
         }
 
         // RF-05 -> VALIDACIÓN PRINCIPAL
-        public (bool IsValid, string Message) ValidateAmount(decimal amount, string payerName, string reference)
+        public (bool IsValid, string Message) ValidateAmount(decimal amount, string payerName, string reference, string customerPhone)
         {
             //  BUSCAR LA ORDEN MÁS RECIENTE DEL CLIENTE
             var order = _context.Orders
-                .Where(o => o.CustomerName == payerName && o.Status == "PENDING")
+                .Where(o =>
+                    o.CustomerName == payerName &&
+                    o.Status == "PENDING")
                 .OrderByDescending(o => o.CreatedAt)
                 .FirstOrDefault();
 
             if (order == null)
                 return (false, "No existe una orden pendiente para este cliente.");
+
+            // validar teléfono
+            if (NormalizePhone(order.Phone) != NormalizePhone(customerPhone))
+            {
+                order.Status = "SUSPECTED";
+                HandleFraudAttempt(reference, "Teléfono del cliente no coincide");
+                _context.SaveChanges();
+
+                return (false, "El número de origen del pago no coincide con el número registrado en la orden.");
+            }
 
             // validar tiempo
             var timeValidation = ValidateTimeReference(reference, order);
@@ -85,22 +97,39 @@ namespace Backend_Bridge.Services
                 return (false, "El monto no coincide con la orden.");
             }
 
-            //  TODO OK → MARCAR COMO PAGADO
-            order.Status = "PAID";
-
-            var payment = new Payment
+            if (order.Status != "PENDING")
             {
-                Reference = reference,
-                Amount = amount,
-                PaymentDate = DateTime.Now,
-                SenderNumber = payerName,
-                OrderId = order.Id
-            };
+                return (false, "La orden ya fue procesada.");
+            }
 
-            _context.Payments.Add(payment);
-            _context.SaveChanges();
+            //  TODO OK → MARCAR COMO PAGADO
+            using var transaction = _context.Database.BeginTransaction();
 
-            return (true, "Pago confirmado correctamente.");
+            try
+            {
+                order.Status = "PAID";
+
+                var payment = new Payment
+                {
+                    Reference = reference,
+                    Amount = amount,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = customerPhone,
+                    OrderId = order.Id
+                };
+
+                _context.Payments.Add(payment);
+                _context.SaveChanges();
+
+                transaction.Commit();
+
+                return (true, "Pago confirmado correctamente.");
+            }
+            catch
+            {
+                transaction.Rollback();
+                return (false, "Ocurrió un error al registrar el pago.");
+            }
         }
 
         private void HandleFraudAttempt(string reference, string fraudType)
@@ -124,6 +153,13 @@ namespace Backend_Bridge.Services
         public IEnumerable<Payment> GetPayments()
         {
             return _context.Payments.ToList();
+        }
+        private string NormalizePhone(string phone)
+        {
+            if (string.IsNullOrWhiteSpace(phone))
+                return string.Empty;
+
+            return new string(phone.Where(char.IsDigit).ToArray());
         }
     }
 }
