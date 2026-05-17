@@ -86,7 +86,7 @@ namespace Backend_Bridge.Services
 
             var match = Regex.Match(
                 messageBody,
-                @"\b\d{25}\b"
+                @"\b\d{20,30}\b"
             );
 
             if (!match.Success)
@@ -113,7 +113,7 @@ namespace Backend_Bridge.Services
                 throw new FormatException("La referencia SINPE no es válida.");
             }
 
-            if (!Regex.IsMatch(reference, @"^\d{25}$"))
+            if (!Regex.IsMatch(reference, @"^\d{20,30}$"))
             {
                 throw new FormatException("La referencia SINPE debe contener exactamente 25 dígitos.");
             }

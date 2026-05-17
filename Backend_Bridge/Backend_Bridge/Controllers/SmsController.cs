@@ -71,7 +71,7 @@ namespace Backend_Bridge.Controllers
             // =========================
             var amountValidation = _paymentValidationService.ValidateAmount(
                 parsedSms.Amount,
-                request.Sender,
+                parsedSms.PayerName,
                 parsedSms.Reference
             );
 
