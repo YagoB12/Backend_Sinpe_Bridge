@@ -7,15 +7,123 @@ namespace Backend_Bridge.Services
     public class PaymentValidationService
     {
         private readonly ApplicationDbContext _context;
+        private readonly AuditLogService _auditLogService;
 
-        public PaymentValidationService(ApplicationDbContext context)
+        public PaymentValidationService(ApplicationDbContext context, AuditLogService auditLogService)
         {
             _context = context;
+            _auditLogService = auditLogService;
         }
 
-        // RF-03 -> Validar tiempo
-        public (bool IsValid, string Message) ValidateTimeReference(string reference, Order order)
+        public (bool IsValid, string Message) ValidateReference(string reference)
         {
+            if (IsReferenceDuplicated(reference))
+            {
+                RegisterFraudAndAudit(
+                    reference,
+                    "Referencia duplicada",
+                    "REFERENCIA_DUPLICADA",
+                    "Se detectó un intento de pago con una referencia ya utilizada."
+                );
+
+                _context.SaveChanges();
+
+                return (false, "La referencia ya fue utilizada.");
+            }
+
+            return (true, "Referencia válida.");
+        }
+
+        public (bool IsValid, string Message) ValidateAmount(
+            decimal amount,
+            string payerName,
+            string reference,
+            string customerPhone)
+        {
+            var errors = new List<string>();
+
+            var order = FindPendingOrder(payerName);
+
+            if (order == null)
+                return (false, "No existe una orden pendiente para este cliente.");
+
+            ValidateCustomerPhone(order, customerPhone, reference, errors);
+            ValidateTimeReference(reference, order, errors);
+            ValidateOrderAmount(order, amount, reference, errors);
+            ValidateOrderStatus(order, reference, errors);
+
+            if (errors.Any())
+            {
+                order.Status = "SUSPECTED";
+
+                _auditLogService.Register(
+                    "ORDEN_SUSPENDIDA",
+                    "La orden fue suspendida por fallos de validación. Debe crear la orden nuevamente.",
+                    reference,
+                    order.Id
+                );
+
+                _context.SaveChanges();
+
+                var finalMessage =
+                    "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
+                    + string.Join(" | ", errors);
+
+                return (false, finalMessage);
+            }
+
+            return ConfirmPayment(order, amount, reference, customerPhone);
+        }
+
+        private Order? FindPendingOrder(string payerName)
+        {
+            return _context.Orders
+                .Where(o =>
+                    o.CustomerName == payerName &&
+                    o.Status == "PENDING")
+                .OrderByDescending(o => o.CreatedAt)
+                .FirstOrDefault();
+        }
+
+        private void ValidateCustomerPhone(
+            Order order,
+            string customerPhone,
+            string reference,
+            List<string> errors)
+        {
+            if (NormalizePhone(order.Phone) == NormalizePhone(customerPhone))
+                return;
+
+            errors.Add("El número de origen del pago no coincide con el número registrado en la orden.");
+
+            RegisterFraudAndAudit(
+                reference,
+                "Teléfono del cliente no coincide",
+                "TELEFONO_NO_COINCIDE",
+                "El número de origen del pago no coincide con el número registrado en la orden.",
+                order.Id
+            );
+        }
+
+        private void ValidateTimeReference(
+            string reference,
+            Order order,
+            List<string> errors)
+        {
+            if (string.IsNullOrWhiteSpace(reference) || reference.Length < 14)
+            {
+                errors.Add("La referencia no contiene una fecha válida.");
+
+                _auditLogService.Register(
+                    "FECHA_REFERENCIA_INVALIDA",
+                    "La referencia no contiene una fecha válida.",
+                    reference,
+                    order.Id
+                );
+
+                return;
+            }
+
             string datePart = reference.Substring(0, 14);
 
             bool isValidDate = DateTime.TryParseExact(
@@ -28,81 +136,79 @@ namespace Backend_Bridge.Services
 
             if (!isValidDate)
             {
-                order.Status = "SUSPECTED";
-                _context.SaveChanges();
+                errors.Add("La referencia no contiene una fecha válida.");
 
-                return (false, "La referencia no contiene una fecha válida.");
+                _auditLogService.Register(
+                    "FECHA_REFERENCIA_INVALIDA",
+                    "La referencia no contiene una fecha válida.",
+                    reference,
+                    order.Id
+                );
+
+                return;
             }
 
             TimeSpan difference = DateTime.Now - paymentDate;
 
             if (difference.TotalMinutes > 15)
             {
-                order.Status = "SUSPECTED";
-                _context.SaveChanges();
+                var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
 
-                return (false, $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.");
+                errors.Add(message);
+
+                _auditLogService.Register(
+                    "PAGO_FUERA_DE_TIEMPO",
+                    message,
+                    reference,
+                    order.Id
+                );
             }
-
-            return (true, "Tiempo válido.");
         }
 
-        // RF-04 -> validar duplicado
-        public (bool IsValid, string Message) ValidateReference(string reference)
+        private void ValidateOrderAmount(
+            Order order,
+            decimal amount,
+            string reference,
+            List<string> errors)
         {
-            bool isDuplicate = _context.Payments.Any(p => p.Reference == reference);
+            if (order.Amount == amount)
+                return;
 
-            if (isDuplicate)
-            {
-                HandleFraudAttempt(reference, "Referencia duplicada");
-                return (false, "La referencia ya fue utilizada.");
-            }
+            errors.Add("El monto no coincide con la orden.");
 
-            return (true, "Referencia válida.");
+            RegisterFraudAndAudit(
+                reference,
+                "Monto incorrecto",
+                "MONTO_INCORRECTO",
+                "El monto recibido no coincide con el monto registrado en la orden.",
+                order.Id
+            );
         }
 
-        // RF-05 -> VALIDACIÓN PRINCIPAL
-        public (bool IsValid, string Message) ValidateAmount(decimal amount, string payerName, string reference, string customerPhone)
+        private void ValidateOrderStatus(
+            Order order,
+            string reference,
+            List<string> errors)
         {
-            //  BUSCAR LA ORDEN MÁS RECIENTE DEL CLIENTE
-            var order = _context.Orders
-                .Where(o =>
-                    o.CustomerName == payerName &&
-                    o.Status == "PENDING")
-                .OrderByDescending(o => o.CreatedAt)
-                .FirstOrDefault();
+            if (order.Status == "PENDING")
+                return;
 
-            if (order == null)
-                return (false, "No existe una orden pendiente para este cliente.");
+            errors.Add("La orden ya fue procesada.");
 
-            // validar teléfono
-            if (NormalizePhone(order.Phone) != NormalizePhone(customerPhone))
-            {
-                order.Status = "SUSPECTED";
-                HandleFraudAttempt(reference, "Teléfono del cliente no coincide");
-                _context.SaveChanges();
+            _auditLogService.Register(
+                "ORDEN_YA_PROCESADA",
+                "La orden ya fue procesada previamente.",
+                reference,
+                order.Id
+            );
+        }
 
-                return (false, "El número de origen del pago no coincide con el número registrado en la orden.");
-            }
-
-            // validar tiempo
-            var timeValidation = ValidateTimeReference(reference, order);
-            if (!timeValidation.IsValid)
-                return timeValidation;
-
-            // validar monto
-            if (order.Amount != amount)
-            {
-                HandleFraudAttempt(reference, "Monto incorrecto");
-                return (false, "El monto no coincide con la orden.");
-            }
-
-            if (order.Status != "PENDING")
-            {
-                return (false, "La orden ya fue procesada.");
-            }
-
-            //  TODO OK → MARCAR COMO PAGADO
+        private (bool IsValid, string Message) ConfirmPayment(
+            Order order,
+            decimal amount,
+            string reference,
+            string customerPhone)
+        {
             using var transaction = _context.Database.BeginTransaction();
 
             try
@@ -121,6 +227,13 @@ namespace Backend_Bridge.Services
                 _context.Payments.Add(payment);
                 _context.SaveChanges();
 
+                _auditLogService.Register(
+                    "PAGO_CONFIRMADO",
+                    "El pago fue asociado correctamente con la orden y la orden fue marcada como pagada.",
+                    reference,
+                    order.Id
+                );
+
                 transaction.Commit();
 
                 return (true, "Pago confirmado correctamente.");
@@ -132,7 +245,17 @@ namespace Backend_Bridge.Services
             }
         }
 
-        private void HandleFraudAttempt(string reference, string fraudType)
+        private bool IsReferenceDuplicated(string reference)
+        {
+            return _context.Payments.Any(p => p.Reference == reference);
+        }
+
+        private void RegisterFraudAndAudit(
+            string reference,
+            string fraudType,
+            string auditAction,
+            string auditDescription,
+            int? orderId = null)
         {
             var fraud = new FraudAttempt
             {
@@ -142,7 +265,13 @@ namespace Backend_Bridge.Services
             };
 
             _context.FraudAttempts.Add(fraud);
-            _context.SaveChanges();
+
+            _auditLogService.Register(
+                auditAction,
+                auditDescription,
+                reference,
+                orderId
+            );
         }
 
         public IEnumerable<FraudAttempt> GetFraudLogs()
@@ -154,6 +283,7 @@ namespace Backend_Bridge.Services
         {
             return _context.Payments.ToList();
         }
+
         private string NormalizePhone(string phone)
         {
             if (string.IsNullOrWhiteSpace(phone))

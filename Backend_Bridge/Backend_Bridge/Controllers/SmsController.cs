@@ -12,15 +12,18 @@ namespace Backend_Bridge.Controllers
         private readonly SmsService _smsService;
         private readonly ISmsParserService _smsParserService;
         private readonly PaymentValidationService _paymentValidationService;
+        private readonly AuditLogService _auditLogService;
 
         public SmsController(
             SmsService smsService,
             ISmsParserService smsParserService,
-            PaymentValidationService paymentValidationService)
+            PaymentValidationService paymentValidationService,
+            AuditLogService auditLogService)
         {
             _smsService = smsService;
             _smsParserService = smsParserService;
             _paymentValidationService = paymentValidationService;
+            _auditLogService = auditLogService;
         }
 
         [HttpPost]
@@ -118,6 +121,11 @@ namespace Backend_Bridge.Controllers
         public IActionResult GetPayments()
         {
             return Ok(_paymentValidationService.GetPayments());
+        }
+        [HttpGet("audit-logs")]
+        public IActionResult GetAuditLogs()
+        {
+            return Ok(_auditLogService.GetAll());
         }
     }
 }
