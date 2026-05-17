@@ -1,5 +1,7 @@
 ﻿using Backend_Bridge.Data;
+using Backend_Bridge.Hubs;
 using Backend_Bridge.Models;
+using Microsoft.AspNetCore.SignalR;
 using System.Globalization;
 
 namespace Backend_Bridge.Services
@@ -8,13 +10,19 @@ namespace Backend_Bridge.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditLogService _auditLogService;
+        private readonly IHubContext<PaymentNotificationHub> _hubContext;
 
-        public PaymentValidationService(ApplicationDbContext context, AuditLogService auditLogService)
+        public PaymentValidationService(
+            ApplicationDbContext context,
+            AuditLogService auditLogService,
+            IHubContext<PaymentNotificationHub> hubContext)
         {
             _context = context;
             _auditLogService = auditLogService;
+            _hubContext = hubContext;
         }
 
+        // Valida si la referencia ya fue usada.
         public (bool IsValid, string Message) ValidateReference(string reference)
         {
             if (IsReferenceDuplicated(reference))
@@ -34,7 +42,8 @@ namespace Backend_Bridge.Services
             return (true, "Referencia válida.");
         }
 
-        public (bool IsValid, string Message) ValidateAmount(
+        // Ejecuta el flujo principal de validación del pago.
+        public async Task<(bool IsValid, string Message)> ValidateAmount(
             decimal amount,
             string payerName,
             string reference,
@@ -72,9 +81,10 @@ namespace Backend_Bridge.Services
                 return (false, finalMessage);
             }
 
-            return ConfirmPayment(order, amount, reference, customerPhone);
+            return await ConfirmPayment(order, amount, reference, customerPhone);
         }
 
+        // Busca la orden pendiente más reciente del cliente.
         private Order? FindPendingOrder(string payerName)
         {
             return _context.Orders
@@ -85,6 +95,7 @@ namespace Backend_Bridge.Services
                 .FirstOrDefault();
         }
 
+        // Valida que el teléfono coincida con la orden.
         private void ValidateCustomerPhone(
             Order order,
             string customerPhone,
@@ -105,6 +116,7 @@ namespace Backend_Bridge.Services
             );
         }
 
+        // Valida que la referencia tenga una fecha reciente.
         private void ValidateTimeReference(
             string reference,
             Order order,
@@ -165,6 +177,7 @@ namespace Backend_Bridge.Services
             }
         }
 
+        // Valida que el monto coincida con la orden.
         private void ValidateOrderAmount(
             Order order,
             decimal amount,
@@ -185,6 +198,7 @@ namespace Backend_Bridge.Services
             );
         }
 
+        // Valida que la orden siga pendiente.
         private void ValidateOrderStatus(
             Order order,
             string reference,
@@ -203,7 +217,8 @@ namespace Backend_Bridge.Services
             );
         }
 
-        private (bool IsValid, string Message) ConfirmPayment(
+        // Confirma el pago y notifica al POS.
+        private async Task<(bool IsValid, string Message)> ConfirmPayment(
             Order order,
             decimal amount,
             string reference,
@@ -234,6 +249,16 @@ namespace Backend_Bridge.Services
                     order.Id
                 );
 
+                await _hubContext.Clients.Group($"order-{order.Id}")
+                    .SendAsync("PaymentConfirmed", new
+                    {
+                        orderId = order.Id,
+                        amount,
+                        senderNumber = customerPhone,
+                        reference,
+                        message = "Pago confirmado correctamente."
+                    });
+
                 transaction.Commit();
 
                 return (true, "Pago confirmado correctamente.");
@@ -245,11 +270,13 @@ namespace Backend_Bridge.Services
             }
         }
 
+        // Verifica si la referencia existe en pagos.
         private bool IsReferenceDuplicated(string reference)
         {
             return _context.Payments.Any(p => p.Reference == reference);
         }
 
+        // Registra intento sospechoso y auditoría.
         private void RegisterFraudAndAudit(
             string reference,
             string fraudType,
@@ -274,16 +301,19 @@ namespace Backend_Bridge.Services
             );
         }
 
+        // Consulta intentos sospechosos.
         public IEnumerable<FraudAttempt> GetFraudLogs()
         {
             return _context.FraudAttempts.ToList();
         }
 
+        // Consulta pagos registrados.
         public IEnumerable<Payment> GetPayments()
         {
             return _context.Payments.ToList();
         }
 
+        // Normaliza números telefónicos.
         private string NormalizePhone(string phone)
         {
             if (string.IsNullOrWhiteSpace(phone))
