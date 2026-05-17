@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend_Bridge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260505214247_newTables")]
+    [Migration("20260507163550_newTables")]
     partial class newTables
     {
         /// <inheritdoc />
