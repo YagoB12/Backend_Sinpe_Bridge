@@ -12,23 +12,29 @@ namespace Backend_Bridge.Controllers
         private readonly SmsService _smsService;
         private readonly ISmsParserService _smsParserService;
         private readonly PaymentValidationService _paymentValidationService;
+        private readonly AuditLogService _auditLogService;
 
         public SmsController(
             SmsService smsService,
             ISmsParserService smsParserService,
-            PaymentValidationService paymentValidationService)
+            PaymentValidationService paymentValidationService,
+            AuditLogService auditLogService)
         {
             _smsService = smsService;
             _smsParserService = smsParserService;
             _paymentValidationService = paymentValidationService;
+            _auditLogService = auditLogService;
         }
 
         [HttpPost]
-        public IActionResult ReceiveSms([FromBody] SmsReceive request)
+        public async Task<IActionResult> ReceiveSms([FromBody] SmsReceive request)
         {
             // =========================
             // VALIDACIONES INICIALES
             // =========================
+            if (string.IsNullOrWhiteSpace(request.CustomerPhone))
+                return BadRequest("El número de teléfono del cliente es obligatorio.");
+
             if (request == null)
                 return BadRequest("La solicitud no puede estar vacía.");
 
@@ -69,10 +75,11 @@ namespace Backend_Bridge.Controllers
             // =========================
             // VALIDAR MONTO (RF-05)
             // =========================
-            var amountValidation = _paymentValidationService.ValidateAmount(
+            var amountValidation = await _paymentValidationService.ValidateAmount(
                 parsedSms.Amount,
-                request.Sender,
-                parsedSms.Reference
+                parsedSms.PayerName,
+                parsedSms.Reference,
+                request.CustomerPhone
             );
 
             if (!amountValidation.IsValid)
@@ -114,6 +121,11 @@ namespace Backend_Bridge.Controllers
         public IActionResult GetPayments()
         {
             return Ok(_paymentValidationService.GetPayments());
+        }
+        [HttpGet("audit-logs")]
+        public IActionResult GetAuditLogs()
+        {
+            return Ok(_auditLogService.GetAll());
         }
     }
 }

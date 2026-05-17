@@ -17,6 +17,11 @@ namespace Backend_Bridge.Data
 
         public DbSet<Order> Orders { get; set; }
 
+        public DbSet<Product> Products { get; set; }
+        public DbSet<OrderDetail> OrderDetails { get; set; }
+
+        public DbSet<AuditLog> AuditLogs { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -24,6 +29,9 @@ namespace Backend_Bridge.Data
             modelBuilder.Entity<Payment>()
                 .HasIndex(p => p.Reference)
                 .IsUnique();
+
+            modelBuilder.Entity<Order>()
+               .HasIndex(o => new { o.CustomerName, o.Status, o.CreatedAt });
         }
     }
 }
