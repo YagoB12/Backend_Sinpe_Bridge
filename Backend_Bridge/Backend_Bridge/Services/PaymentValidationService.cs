@@ -43,7 +43,10 @@ namespace Backend_Bridge.Services
             var errors = new List<string>();
 
             var order = FindPendingOrder(payerName);
-
+            var validateExpired = ValidateExpireOrder(payerName, reference);
+            if (!validateExpired.IsValid) {
+                return validateExpired;
+            }
             if (order == null)
                 return (false, "No existe una orden pendiente para este cliente.");
 
@@ -80,7 +83,8 @@ namespace Backend_Bridge.Services
             return _context.Orders
                 .Where(o =>
                     o.CustomerName == payerName &&
-                    o.Status == "PENDING")
+                    o.Status == "PENDING" &&
+                    DateTime.Now <= o.CreatedAt.AddMinutes(30))
                 .OrderByDescending(o => o.CreatedAt)
                 .FirstOrDefault();
         }
@@ -150,7 +154,8 @@ namespace Backend_Bridge.Services
 
             TimeSpan difference = DateTime.Now - paymentDate;
 
-            if (difference.TotalMinutes > 15)
+            if (difference.TotalMinutes < 16 &&
+                difference.TotalMinutes>1 )
             {
                 var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
 
@@ -202,7 +207,28 @@ namespace Backend_Bridge.Services
                 order.Id
             );
         }
+        private (bool IsValid, string Message) ValidateExpireOrder(string payerName, string reference) {
+                    var expiredOrder = _context.Orders
+            .Where(o =>
+                o.CustomerName == payerName &&
+                o.Status == "EXPIRED")
+            .OrderByDescending(o => o.CreatedAt)
+            .FirstOrDefault();
 
+                    if (expiredOrder != null)
+                    {
+                        _auditLogService.Register(
+                            "PAGO_RECIBIDO_ORDEN_EXPIRADA",
+                            "Se recibió un pago para una orden expirada. El pago no fue asociado.",
+                            reference,
+                            expiredOrder.Id
+                        );
+
+                        return (false, "La orden ya expiró. Debe crear una nueva orden.");
+                    }
+            return (true, "La orden no expirada");
+
+        }
         private (bool IsValid, string Message) ConfirmPayment(
             Order order,
             decimal amount,
@@ -290,6 +316,30 @@ namespace Backend_Bridge.Services
                 return string.Empty;
 
             return new string(phone.Where(char.IsDigit).ToArray());
+        }
+
+        //RF 10
+        public void ExpirePendingOrders()
+        {
+            var expiredOrders = _context.Orders
+                .Where(o =>
+                    o.Status == "PENDING" &&
+                    DateTime.Now > o.CreatedAt.AddMinutes(30))
+                .ToList();
+
+            foreach (var order in expiredOrders)
+            {
+                order.Status = "EXPIRED";
+
+                _auditLogService.Register(
+                    "ORDEN_EXPIRADA",
+                    "La orden expiró automáticamente después de 30 minutos sin pago.",
+                    null,
+                    order.Id
+                );
+            }
+
+            _context.SaveChanges();
         }
     }
 }

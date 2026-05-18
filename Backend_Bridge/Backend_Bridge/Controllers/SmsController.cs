@@ -61,6 +61,11 @@ namespace Backend_Bridge.Controllers
             var parsedSms = _smsParserService.Parse(request.Message);
 
             // =========================
+            // EXPIRAR ÓRDENES VENCIDAS
+            // =========================
+            _paymentValidationService.ExpirePendingOrders();
+
+            // =========================
             // VALIDAR REFERENCIA (RF-04)
             // =========================
             var refValidation = _paymentValidationService.ValidateReference(

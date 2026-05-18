@@ -2,6 +2,8 @@
 using Backend_Bridge.DTO;
 using Backend_Bridge.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
 
 [ApiController]
 [Route("orders")]
@@ -69,4 +71,24 @@ public class OrderController : ControllerBase
 
         return Ok(order);
     }
-}
+        // RF 09 conssulta rapida (Ver ordenes pedientes)
+
+        [HttpGet("pending")]
+
+        public IActionResult GetPendingOrders()
+        {
+            var orders = _context.Orders
+                .Where(o => o.Status == "PENDING")
+                .Include(o => o.Details)
+                    .ThenInclude(d => d.Product)
+
+                .OrderByDescending(o => o.CreatedAt)
+                .ToList();
+
+            return Ok(orders);
+        }
+    }
+
+
+
+
