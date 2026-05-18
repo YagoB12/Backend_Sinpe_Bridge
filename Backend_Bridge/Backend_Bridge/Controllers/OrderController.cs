@@ -73,22 +73,30 @@ public class OrderController : ControllerBase
     }
         // RF 09 conssulta rapida (Ver ordenes pedientes)
 
-        [HttpGet("pending")]
+         [HttpGet("pending")]
+    public IActionResult GetPendingOrder()
+    {
+        var order = _context.Orders
+            .Where(o => o.Status == "PENDING")
+            .Include(o => o.Details)
+            .ThenInclude(d => d.Product)
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Phone,
+                o.Amount,
+                o.Status,
+                o.CreatedAt
+            })
+            .FirstOrDefault();
 
-        public IActionResult GetPendingOrders()
-        {
-            var orders = _context.Orders
-                .Where(o => o.Status == "PENDING")
-                .Include(o => o.Details)
-                    .ThenInclude(d => d.Product)
+        if (order == null)
+            return NotFound("No hay órdenes pendientes.");
 
-                .OrderByDescending(o => o.CreatedAt)
-                .ToList();
-
-            return Ok(orders);
-        }
+        return Ok(order);
     }
-
-
+    }
 
 

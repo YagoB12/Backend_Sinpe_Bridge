@@ -27,7 +27,7 @@ namespace Backend_Bridge.Controllers
         }
 
         [HttpPost]
-        public IActionResult ReceiveSms([FromBody] SmsReceive request)
+        public async Task<IActionResult> ReceiveSms([FromBody] SmsReceive request)
         {
             // =========================
             // VALIDACIONES INICIALES
@@ -80,7 +80,7 @@ namespace Backend_Bridge.Controllers
             // =========================
             // VALIDAR MONTO (RF-05)
             // =========================
-            var amountValidation = _paymentValidationService.ValidateAmount(
+            var amountValidation = await _paymentValidationService.ValidateAmount(
                 parsedSms.Amount,
                 parsedSms.PayerName,
                 parsedSms.Reference,
