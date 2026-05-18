@@ -12,13 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend_Bridge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-<<<<<<<< HEAD:Backend_Bridge/Backend_Bridge/Migrations/20260507163550_newTables.Designer.cs
     [Migration("20260507163550_newTables")]
     partial class newTables
-========
-    [Migration("20260517005347_InitialClean")]
-    partial class InitialClean
->>>>>>>> dev:Backend_Bridge/Backend_Bridge/Migrations/20260517005347_InitialClean.Designer.cs
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

@@ -22,68 +22,6 @@ namespace Backend_Bridge.Services
             _hubContext = hubContext;
         }
 
-        // Valida si la referencia ya fue usada.
-        public (bool IsValid, string Message) ValidateReference(string reference)
-        {
-            if (IsReferenceDuplicated(reference))
-            {
-                RegisterFraudAndAudit(
-                    reference,
-                    "Referencia duplicada",
-                    "REFERENCIA_DUPLICADA",
-                    "Se detectó un intento de pago con una referencia ya utilizada."
-                );
-
-                _context.SaveChanges();
-
-                return (false, "La referencia ya fue utilizada.");
-            }
-
-            return (true, "Referencia válida.");
-        }
-
-        // Ejecuta el flujo principal de validación del pago.
-        public async Task<(bool IsValid, string Message)> ValidateAmount(
-            decimal amount,
-            string payerName,
-            string reference,
-            string customerPhone)
-        {
-            var errors = new List<string>();
-
-            var order = FindPendingOrder(payerName);
-
-            if (order == null)
-                return (false, "No existe una orden pendiente para este cliente.");
-
-            ValidateCustomerPhone(order, customerPhone, reference, errors);
-            ValidateTimeReference(reference, order, errors);
-            ValidateOrderAmount(order, amount, reference, errors);
-            ValidateOrderStatus(order, reference, errors);
-
-            if (errors.Any())
-            {
-                order.Status = "SUSPECTED";
-
-                _auditLogService.Register(
-                    "ORDEN_SUSPENDIDA",
-                    "La orden fue suspendida por fallos de validación. Debe crear la orden nuevamente.",
-                    reference,
-                    order.Id
-                );
-
-                _context.SaveChanges();
-
-                var finalMessage =
-                    "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
-                    + string.Join(" | ", errors);
-
-                return (false, finalMessage);
-            }
-
-            return await ConfirmPayment(order, amount, reference, customerPhone);
-        }
-
         // Busca la orden pendiente más reciente del cliente.
         private Order? FindPendingOrder(string payerName)
         {
@@ -217,59 +155,6 @@ namespace Backend_Bridge.Services
             );
         }
 
-        // Confirma el pago y notifica al POS.
-        private async Task<(bool IsValid, string Message)> ConfirmPayment(
-            Order order,
-            decimal amount,
-            string reference,
-            string customerPhone)
-        {
-            using var transaction = _context.Database.BeginTransaction();
-
-            try
-            {
-                order.Status = "PAID";
-
-                var payment = new Payment
-                {
-                    Reference = reference,
-                    Amount = amount,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = customerPhone,
-                    OrderId = order.Id
-                };
-
-                _context.Payments.Add(payment);
-                _context.SaveChanges();
-
-                _auditLogService.Register(
-                    "PAGO_CONFIRMADO",
-                    "El pago fue asociado correctamente con la orden y la orden fue marcada como pagada.",
-                    reference,
-                    order.Id
-                );
-
-                await _hubContext.Clients.Group($"order-{order.Id}")
-                    .SendAsync("PaymentConfirmed", new
-                    {
-                        orderId = order.Id,
-                        amount,
-                        senderNumber = customerPhone,
-                        reference,
-                        message = "Pago confirmado correctamente."
-                    });
-
-                transaction.Commit();
-
-                return (true, "Pago confirmado correctamente.");
-            }
-            catch
-            {
-                transaction.Rollback();
-                return (false, "Ocurrió un error al registrar el pago.");
-            }
-        }
-
         // Verifica si la referencia existe en pagos.
         private bool IsReferenceDuplicated(string reference)
         {
@@ -321,5 +206,151 @@ namespace Backend_Bridge.Services
 
             return new string(phone.Where(char.IsDigit).ToArray());
         }
+
+        // Valida si la referencia ya fue usada.
+        public (bool IsValid, string Message) ValidateReference(string reference)
+        {
+            if (IsReferenceDuplicated(reference))
+            {
+                RegisterFraudAndAudit(
+                    reference,
+                    "Referencia duplicada",
+                    "REFERENCIA_DUPLICADA",
+                    "Se detectó un intento de pago con una referencia ya utilizada."
+                );
+
+                // registro en el historial como rechazado
+                var rejectedPayment = new Payment
+                {
+                    Reference = reference,
+                    Amount = 0,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = "Desconocido",
+                    OrderId = 0,
+                    Status = "Rechazado",
+                    VerificationResult = "Referencia duplicada"
+                };
+                _context.Payments.Add(rejectedPayment);
+
+                _context.SaveChanges();
+
+                return (false, "La referencia ya fue utilizada.");
+            }
+
+            return (true, "Referencia válida.");
+        }
+
+        // Ejecuta el flujo principal de validación del pago.
+       public async Task<(bool IsValid, string Message)> ValidateAmount(
+            decimal amount,
+            string payerName,
+            string reference,
+            string customerPhone)
+        {
+            var errors = new List<string>();
+
+            var order = FindPendingOrder(payerName);
+
+            if (order == null)
+                return (false, "No existe una orden pendiente para este cliente.");
+
+            ValidateCustomerPhone(order, customerPhone, reference, errors);
+            ValidateTimeReference(reference, order, errors);
+            ValidateOrderAmount(order, amount, reference, errors);
+            ValidateOrderStatus(order, reference, errors);
+
+            if (errors.Any())
+            {
+                order.Status = "SUSPECTED";
+
+                _auditLogService.Register(
+                    "ORDEN_SUSPENDIDA",
+                    "La orden fue suspendida por fallos de validación. Debe crear la orden nuevamente.",
+                    reference,
+                    order.Id
+                );
+
+                // registro en el historial como rechazado
+                var rejectedPayment = new Payment
+                {
+                    Reference = reference,
+                    Amount = amount,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = customerPhone,
+                    OrderId = order.Id,
+                    Status = "Rechazado",
+                    VerificationResult = string.Join(" | ", errors)
+                };
+                _context.Payments.Add(rejectedPayment);
+
+                _context.SaveChanges();
+
+                var finalMessage =
+                    "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
+                    + string.Join(" | ", errors);
+
+                return (false, finalMessage);
+            }
+
+            return await ConfirmPayment(order, amount, reference, customerPhone);
+        }
+
+        // Confirma el pago y notifica al POS.
+        private async Task<(bool IsValid, string Message)> ConfirmPayment(
+            Order order,
+            decimal amount,
+            string reference,
+            string customerPhone)
+        {
+            using var transaction = _context.Database.BeginTransaction();
+
+            try
+            {
+                order.Status = "PAID";
+
+                var payment = new Payment
+                {
+                    Reference = reference,
+                    Amount = amount,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = customerPhone,
+                    OrderId = order.Id,
+                    Status = "Aprobado",
+                    VerificationResult = "Pago exitoso"
+                };
+
+                _context.Payments.Add(payment);
+                _context.SaveChanges();
+
+                _auditLogService.Register(
+                    "PAGO_CONFIRMADO",
+                    "El pago fue asociado correctamente con la orden y la orden fue marcada como pagada.",
+                    reference,
+                    order.Id
+                );
+
+                await _hubContext.Clients.Group($"order-{order.Id}")
+                    .SendAsync("PaymentConfirmed", new
+                    {
+                        orderId = order.Id,
+                        amount,
+                        senderNumber = customerPhone,
+                        reference,
+                        message = "Pago confirmado correctamente."
+                    });
+
+                transaction.Commit();
+
+                return (true, "Pago confirmado correctamente.");
+            }
+            catch
+            {
+                transaction.Rollback();
+                return (false, "Ocurrió un error al registrar el pago.");
+            }
+        }
+
+
     }
+
 }
