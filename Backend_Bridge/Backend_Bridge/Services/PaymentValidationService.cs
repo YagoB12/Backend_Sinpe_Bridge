@@ -10,25 +10,29 @@ namespace Backend_Bridge.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditLogService _auditLogService;
+        private readonly ManualVericationService _manualVericationService;
         private readonly IHubContext<PaymentNotificationHub> _hubContext;
 
         public PaymentValidationService(
             ApplicationDbContext context,
             AuditLogService auditLogService,
+            ManualVericationService manualVericationService,
             IHubContext<PaymentNotificationHub> hubContext)
         {
             _context = context;
             _auditLogService = auditLogService;
+            _manualVericationService = manualVericationService;
             _hubContext = hubContext;
         }
 
-        // Busca la orden pendiente más reciente del cliente.
+        // RF 10: Busca la orden pendiente (Solo las de los últimos 30 mins)
         private Order? FindPendingOrder(string payerName)
         {
             return _context.Orders
                 .Where(o =>
                     o.CustomerName == payerName &&
-                    o.Status == "PENDING")
+                    o.Status == "PENDING" &&
+                    DateTime.Now <= o.CreatedAt.AddMinutes(30))
                 .OrderByDescending(o => o.CreatedAt)
                 .FirstOrDefault();
         }
@@ -38,6 +42,7 @@ namespace Backend_Bridge.Services
             Order order,
             string customerPhone,
             string reference,
+            decimal amount, // HU-13
             List<string> errors)
         {
             if (NormalizePhone(order.Phone) == NormalizePhone(customerPhone))
@@ -47,6 +52,7 @@ namespace Backend_Bridge.Services
 
             RegisterFraudAndAudit(
                 reference,
+                amount, // HU-13
                 "Teléfono del cliente no coincide",
                 "TELEFONO_NO_COINCIDE",
                 "El número de origen del pago no coincide con el número registrado en la orden.",
@@ -58,19 +64,13 @@ namespace Backend_Bridge.Services
         private void ValidateTimeReference(
             string reference,
             Order order,
+            decimal amount, // HU-13
             List<string> errors)
         {
             if (string.IsNullOrWhiteSpace(reference) || reference.Length < 14)
             {
                 errors.Add("La referencia no contiene una fecha válida.");
-
-                _auditLogService.Register(
-                    "FECHA_REFERENCIA_INVALIDA",
-                    "La referencia no contiene una fecha válida.",
-                    reference,
-                    order.Id
-                );
-
+                RegisterFraudAndAudit(reference, amount, "Fecha de referencia inválida", "FECHA_REFERENCIA_INVALIDA", "La referencia no contiene una fecha válida.", order.Id);
                 return;
             }
 
@@ -87,31 +87,20 @@ namespace Backend_Bridge.Services
             if (!isValidDate)
             {
                 errors.Add("La referencia no contiene una fecha válida.");
-
-                _auditLogService.Register(
-                    "FECHA_REFERENCIA_INVALIDA",
-                    "La referencia no contiene una fecha válida.",
-                    reference,
-                    order.Id
-                );
-
+                RegisterFraudAndAudit(reference, amount, "Fecha de referencia inválida", "FECHA_REFERENCIA_INVALIDA", "La referencia no contiene una fecha válida.", order.Id);
                 return;
             }
 
             TimeSpan difference = DateTime.Now - paymentDate;
 
-            if (difference.TotalMinutes > 15)
+            // Integración DEV (ManualVerification) + HU-13 (Fraud)
+            if (difference.TotalMinutes > 15 && difference.TotalMinutes < 30)
             {
                 var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
-
+                _manualVericationService.Register("SUSPECTED", message, order.Id);
                 errors.Add(message);
 
-                _auditLogService.Register(
-                    "PAGO_FUERA_DE_TIEMPO",
-                    message,
-                    reference,
-                    order.Id
-                );
+                RegisterFraudAndAudit(reference, amount, "Pago fuera de tiempo", "PAGO_FUERA_DE_TIEMPO", message, order.Id);
             }
         }
 
@@ -129,6 +118,7 @@ namespace Backend_Bridge.Services
 
             RegisterFraudAndAudit(
                 reference,
+                amount, // HU-13
                 "Monto incorrecto",
                 "MONTO_INCORRECTO",
                 "El monto recibido no coincide con el monto registrado en la orden.",
@@ -155,15 +145,40 @@ namespace Backend_Bridge.Services
             );
         }
 
+        // Integración DEV: Verifica si la orden ya había expirado
+        private (bool IsValid, string Message) ValidateExpireOrder(string payerName, string reference)
+        {
+            var expiredOrder = _context.Orders
+                .Where(o =>
+                    o.CustomerName == payerName &&
+                    o.Status == "EXPIRED")
+                .OrderByDescending(o => o.CreatedAt)
+                .FirstOrDefault();
+
+            if (expiredOrder != null)
+            {
+                _auditLogService.Register(
+                    "PAGO_RECIBIDO_ORDEN_EXPIRADA",
+                    "Se recibió un pago para una orden expirada. El pago no fue asociado.",
+                    reference,
+                    expiredOrder.Id
+                );
+
+                return (false, "La orden ya expiró. Debe crear una nueva orden.");
+            }
+            return (true, "La orden no expirada");
+        }
+
         // Verifica si la referencia existe en pagos.
         private bool IsReferenceDuplicated(string reference)
         {
             return _context.Payments.Any(p => p.Reference == reference);
         }
 
-        // Registra intento sospechoso y auditoría.
+        // Registra intento sospechoso y auditoría (HU-13: Recibe el monto)
         private void RegisterFraudAndAudit(
             string reference,
+            decimal amount, // HU-13
             string fraudType,
             string auditAction,
             string auditDescription,
@@ -172,6 +187,7 @@ namespace Backend_Bridge.Services
             var fraud = new FraudAttempt
             {
                 Reference = reference,
+                Amount = amount, // HU-13
                 FraudType = fraudType,
                 AttemptDate = DateTime.Now
             };
@@ -207,19 +223,44 @@ namespace Backend_Bridge.Services
             return new string(phone.Where(char.IsDigit).ToArray());
         }
 
-        // Valida si la referencia ya fue usada.
+        // Integración DEV: Expira órdenes viejas (RF-10)
+        public void ExpirePendingOrders()
+        {
+            var expiredOrders = _context.Orders
+                .Where(o =>
+                    o.Status == "PENDING" &&
+                    DateTime.Now > o.CreatedAt.AddMinutes(30))
+                .ToList();
+
+            foreach (var order in expiredOrders)
+            {
+                order.Status = "EXPIRED";
+
+                _auditLogService.Register(
+                    "ORDEN_EXPIRADA",
+                    "La orden expiró automáticamente después de 30 minutos sin pago.",
+                    null,
+                    order.Id
+                );
+            }
+
+            _context.SaveChanges();
+        }
+
+        // Valida si la referencia ya fue usada. (HU-12 + HU-13)
         public (bool IsValid, string Message) ValidateReference(string reference)
         {
             if (IsReferenceDuplicated(reference))
             {
                 RegisterFraudAndAudit(
                     reference,
+                    0, // HU-13: Temporalmente 0
                     "Referencia duplicada",
                     "REFERENCIA_DUPLICADA",
                     "Se detectó un intento de pago con una referencia ya utilizada."
                 );
 
-                // registro en el historial como rechazado
+                // HU-12: Registro en el historial como rechazado
                 var rejectedPayment = new Payment
                 {
                     Reference = reference,
@@ -240,8 +281,8 @@ namespace Backend_Bridge.Services
             return (true, "Referencia válida.");
         }
 
-        // Ejecuta el flujo principal de validación del pago.
-       public async Task<(bool IsValid, string Message)> ValidateAmount(
+        // Ejecuta el flujo principal de validación del pago. (Integra todo)
+        public async Task<(bool IsValid, string Message)> ValidateAmount(
             decimal amount,
             string payerName,
             string reference,
@@ -249,13 +290,21 @@ namespace Backend_Bridge.Services
         {
             var errors = new List<string>();
 
+            // Integración DEV: Check Expired Order
+            var validateExpired = ValidateExpireOrder(payerName, reference);
+            if (!validateExpired.IsValid)
+            {
+                return validateExpired;
+            }
+
             var order = FindPendingOrder(payerName);
 
             if (order == null)
                 return (false, "No existe una orden pendiente para este cliente.");
 
-            ValidateCustomerPhone(order, customerPhone, reference, errors);
-            ValidateTimeReference(reference, order, errors);
+            // HU-13: Pasando el Amount
+            ValidateCustomerPhone(order, customerPhone, reference, amount, errors);
+            ValidateTimeReference(reference, order, amount, errors);
             ValidateOrderAmount(order, amount, reference, errors);
             ValidateOrderStatus(order, reference, errors);
 
@@ -270,7 +319,7 @@ namespace Backend_Bridge.Services
                     order.Id
                 );
 
-                // registro en el historial como rechazado
+                // HU-12: Registro en el historial como rechazado
                 var rejectedPayment = new Payment
                 {
                     Reference = reference,
@@ -295,7 +344,7 @@ namespace Backend_Bridge.Services
             return await ConfirmPayment(order, amount, reference, customerPhone);
         }
 
-        // Confirma el pago y notifica al POS.
+        // Confirma el pago y notifica al POS. (HU-12)
         private async Task<(bool IsValid, string Message)> ConfirmPayment(
             Order order,
             decimal amount,
@@ -315,8 +364,8 @@ namespace Backend_Bridge.Services
                     PaymentDate = DateTime.Now,
                     SenderNumber = customerPhone,
                     OrderId = order.Id,
-                    Status = "Aprobado",
-                    VerificationResult = "Pago exitoso"
+                    Status = "Aprobado", // HU-12
+                    VerificationResult = "Pago exitoso" // HU-12
                 };
 
                 _context.Payments.Add(payment);
@@ -349,8 +398,5 @@ namespace Backend_Bridge.Services
                 return (false, "Ocurrió un error al registrar el pago.");
             }
         }
-
-
     }
-
 }
