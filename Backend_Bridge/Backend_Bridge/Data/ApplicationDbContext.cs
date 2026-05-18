@@ -23,6 +23,8 @@ namespace Backend_Bridge.Data
         public DbSet<OrderDetail> OrderDetails { get; set; }
 
         public DbSet<AuditLog> AuditLogs { get; set; }
+        public DbSet<DeviceHeartbeat> DeviceHeartbeats { get; set; }
+        public DbSet<MonitoringHistory> MonitoringHistories { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
