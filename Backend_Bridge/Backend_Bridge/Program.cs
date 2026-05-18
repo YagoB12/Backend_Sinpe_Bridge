@@ -15,6 +15,7 @@ builder.Services.AddScoped<PaymentValidationService>();
 builder.Services.AddScoped<ISmsParserService, SmsParserService>();
 
 builder.Services.AddScoped<AuditLogService>();
+builder.Services.AddScoped<ManualVericationService>();  
 
 //Conexión a base de datos
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

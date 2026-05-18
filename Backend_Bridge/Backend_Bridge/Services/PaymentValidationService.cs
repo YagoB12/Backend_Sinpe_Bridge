@@ -8,11 +8,13 @@ namespace Backend_Bridge.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly AuditLogService _auditLogService;
+        private readonly ManualVericationService _manualVericationService;
 
-        public PaymentValidationService(ApplicationDbContext context, AuditLogService auditLogService)
+        public PaymentValidationService(ApplicationDbContext context, AuditLogService auditLogService, ManualVericationService manualVericationService)
         {
             _context = context;
             _auditLogService = auditLogService;
+            _manualVericationService = manualVericationService;
         }
 
         public (bool IsValid, string Message) ValidateReference(string reference)
@@ -154,11 +156,11 @@ namespace Backend_Bridge.Services
 
             TimeSpan difference = DateTime.Now - paymentDate;
 
-            if (difference.TotalMinutes < 16 &&
-                difference.TotalMinutes>1 )
+            if (difference.TotalMinutes > 15 &&
+                difference.TotalMinutes<30)
             {
                 var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
-
+                _manualVericationService.Register("SUSPECTED", message, order.Id);//Regristo desde la bd
                 errors.Add(message);
 
                 _auditLogService.Register(

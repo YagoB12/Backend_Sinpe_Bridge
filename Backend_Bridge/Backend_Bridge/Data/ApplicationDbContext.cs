@@ -11,6 +11,8 @@ namespace Backend_Bridge.Data
         }
 
         public DbSet<SmsLog> SmsLogs { get; set; }
+        public DbSet<ManualReviewTransaction> ManualReviewTransactions { get; set; }
+
 
         public DbSet<Payment> Payments { get; set; }
         public DbSet<FraudAttempt> FraudAttempts { get; set; }
@@ -32,6 +34,12 @@ namespace Backend_Bridge.Data
 
             modelBuilder.Entity<Order>()
                .HasIndex(o => new { o.CustomerName, o.Status, o.CreatedAt });
+            modelBuilder.Entity<ManualReviewTransaction>()
+            .HasOne<Order>()
+            .WithMany()
+            .HasForeignKey(m => m.OrderId)
+            .OnDelete(DeleteBehavior.SetNull);
         }
+
     }
 }
