@@ -69,4 +69,26 @@ public class OrderController : ControllerBase
 
         return Ok(order);
     }
+    [HttpGet("pending")]
+    public IActionResult GetPendingOrder()
+    {
+        var order = _context.Orders
+            .Where(o => o.Status == "PENDING")
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Phone,
+                o.Amount,
+                o.Status,
+                o.CreatedAt
+            })
+            .FirstOrDefault();
+
+        if (order == null)
+            return NotFound("No hay órdenes pendientes.");
+
+        return Ok(order);
+    }
 }
