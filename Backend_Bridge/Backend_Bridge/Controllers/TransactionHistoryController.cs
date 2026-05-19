@@ -38,7 +38,8 @@ namespace Backend_Bridge.Controllers
                     PayerName = p.Order != null ? p.Order.CustomerName : "Desconocido",
                     p.Reference,
                     p.Status,
-                    p.VerificationResult
+                    p.VerificationResult,
+                    p.SenderNumber
                 }).ToList();
 
             return Ok(result);
