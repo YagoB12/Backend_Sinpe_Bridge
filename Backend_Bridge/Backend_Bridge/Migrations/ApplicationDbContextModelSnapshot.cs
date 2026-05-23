@@ -52,6 +52,29 @@ namespace Backend_Bridge.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("Backend_Bridge.Models.DeviceHeartbeat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsConnected")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastCommunication")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DeviceHeartbeats");
+                });
+
             modelBuilder.Entity("Backend_Bridge.Models.FraudAttempt", b =>
                 {
                     b.Property<int>("Id")
@@ -59,6 +82,9 @@ namespace Backend_Bridge.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime>("AttemptDate")
                         .HasColumnType("datetime2");
@@ -103,6 +129,29 @@ namespace Backend_Bridge.Migrations
                     b.HasIndex("OrderId");
 
                     b.ToTable("ManualReviewTransactions");
+                });
+
+            modelBuilder.Entity("Backend_Bridge.Models.MonitoringHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DisconnectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsResolved")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MonitoringHistories");
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.Order", b =>
@@ -189,6 +238,14 @@ namespace Backend_Bridge.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("SenderNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("VerificationResult")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 

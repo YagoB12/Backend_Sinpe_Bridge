@@ -15,7 +15,9 @@ builder.Services.AddScoped<PaymentValidationService>();
 builder.Services.AddScoped<ISmsParserService, SmsParserService>();
 
 builder.Services.AddScoped<AuditLogService>();
-builder.Services.AddScoped<ManualVericationService>();  
+builder.Services.AddScoped<ManualVericationService>();
+
+builder.Services.AddHostedService<DeviceMonitoringService>();
 
 builder.Services.AddSignalR();
 

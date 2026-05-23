@@ -7,11 +7,13 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
+#nullable disable
+
 namespace Backend_Bridge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260517005347_InitialClean")]
-    partial class InitialClean
+    [Migration("20260518200239_AjustesHistorialYFraude")]
+    partial class AjustesHistorialYFraude
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -23,6 +25,36 @@ namespace Backend_Bridge.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Backend_Bridge.Models.AuditLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("OrderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reference")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AuditLogs");
+                });
+
             modelBuilder.Entity("Backend_Bridge.Models.FraudAttempt", b =>
                 {
                     b.Property<int>("Id")
@@ -30,6 +62,9 @@ namespace Backend_Bridge.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<DateTime>("AttemptDate")
                         .HasColumnType("datetime2");
@@ -45,6 +80,35 @@ namespace Backend_Bridge.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("FraudAttempts");
+                });
+
+            modelBuilder.Entity("Backend_Bridge.Models.ManualReviewTransaction", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("OrderId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
+
+                    b.ToTable("ManualReviewTransactions");
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.Order", b =>
@@ -63,7 +127,7 @@ namespace Backend_Bridge.Migrations
 
                     b.Property<string>("CustomerName")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Phone")
                         .IsRequired()
@@ -71,9 +135,11 @@ namespace Backend_Bridge.Migrations
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CustomerName", "Status", "CreatedAt");
 
                     b.ToTable("Orders");
                 });
@@ -129,6 +195,14 @@ namespace Backend_Bridge.Migrations
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("SenderNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("VerificationResult")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
@@ -196,6 +270,14 @@ namespace Backend_Bridge.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SmsLogs");
+                });
+
+            modelBuilder.Entity("Backend_Bridge.Models.ManualReviewTransaction", b =>
+                {
+                    b.HasOne("Backend_Bridge.Models.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.OrderDetail", b =>
