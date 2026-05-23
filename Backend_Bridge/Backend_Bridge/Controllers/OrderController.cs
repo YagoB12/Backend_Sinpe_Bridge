@@ -97,6 +97,26 @@ public class OrderController : ControllerBase
 
         return Ok(order);
     }
+    //La vista de front
+    [HttpGet]
+    public IActionResult GetOrders()
+    {
+        var orders = _context.Orders
+            .Include(o => o.Details)
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Phone,
+                o.Amount,
+                o.Status,
+                o.CreatedAt
+            })
+            .ToList();
+
+        return Ok(orders);
     }
+}
 
 
