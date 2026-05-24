@@ -91,13 +91,13 @@ namespace Backend_Bridge.Services
                 return;
             }
 
-            TimeSpan difference = DateTime.Now - paymentDate;
+            DateTime paymentDateUtc = DateTime.SpecifyKind(paymentDate, DateTimeKind.Utc);
 
+            TimeSpan difference = paymentDateUtc - order.CreatedAt;
             // Integración DEV (ManualVerification) + HU-13 (Fraud)
             if (difference.TotalMinutes > 15 && difference.TotalMinutes < 30)
             {
                 var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
-                _manualVericationService.Register("SUSPECTED", message, order.Id);
                 errors.Add(message);
 
                 RegisterFraudAndAudit(reference, amount, "Pago fuera de tiempo", "PAGO_FUERA_DE_TIEMPO", message, order.Id);
@@ -319,6 +319,7 @@ namespace Backend_Bridge.Services
                     order.Id
                 );
 
+
                 // HU-12: Registro en el historial como rechazado
                 var rejectedPayment = new Payment
                 {
@@ -338,7 +339,10 @@ namespace Backend_Bridge.Services
                     "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
                     + string.Join(" | ", errors);
 
+                _manualVericationService.Register("SUSPECTED", string.Join(" | ", errors), order.Id);
+
                 return (false, finalMessage);
+
             }
 
             return await ConfirmPayment(order, amount, reference, customerPhone);
