@@ -1,34 +1,43 @@
-# ASP.NET Core (.NET Framework)
-# Build and test ASP.NET Core projects targeting the full .NET Framework.
-# Add steps that publish symbols, save build artifacts, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
-
 trigger:
-- main
+- main  # Se ejecutará solo cuando hagas push a la rama 'main' (cámbialo si usas master o dev)
 
+# CLAVE: Obliga a Azure a usar tu máquina en lugar de sus servidores
 pool:
-  vmImage: 'windows-latest'
+  name: 'Default'
 
 variables:
-  solution: '**/*.sln'
-  buildPlatform: 'Any CPU'
   buildConfiguration: 'Release'
 
 steps:
-- task: NuGetToolInstaller@1
-
-- task: NuGetCommand@2
+# 1. Restaurar las dependencias y paquetes NuGet del proyecto
+- task: DotNetCoreCLI@2
+  displayName: 'Restaurar paquetes NuGet (.NET)'
   inputs:
-    restoreSolution: '$(solution)'
+    command: 'restore'
+    projects: '**/*.csproj'
 
-- task: VSBuild@1
+# 2. Compilar el Backend en modo Release usando las herramientas de tu compu
+- task: DotNetCoreCLI@2
+  displayName: 'Compilar Backend (Build)'
   inputs:
-    solution: '$(solution)'
-    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+    command: 'build'
+    projects: '**/*.csproj'
+    arguments: '--configuration $(buildConfiguration)'
 
-- task: VSTest@2
+# 3. Publicar/Empaquetar los archivos listos para ejecutar (el Build/Publish)
+- task: DotNetCoreCLI@2
+  displayName: 'Generar archivos ejecutables (Publish)'
   inputs:
-    platform: '$(buildPlatform)'
-    configuration: '$(buildConfiguration)'
+    command: 'publish'
+    publishWebProjects: false
+    projects: '**/*.csproj'
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    zipAfterPublish: true
+
+# 4. Subir el archivo empaquetado (el artefacto final) a la nube de Azure
+- task: PublishBuildArtifacts@1
+  displayName: 'Subir artefacto a la nube de Azure'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'sinpe-bridge-backend-build'
+    publishLocation: 'Container'
