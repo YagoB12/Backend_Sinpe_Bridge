@@ -1,7 +1,11 @@
 ﻿using Backend_Bridge.Data;
+using Backend_Bridge.DTO;
+using Backend_Bridge.DTOs;
 using Backend_Bridge.Hubs;
 using Backend_Bridge.Models;
+using Backend_Bridge.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Configuration;
 using System.Globalization;
 
 namespace Backend_Bridge.Services
@@ -12,17 +16,23 @@ namespace Backend_Bridge.Services
         private readonly AuditLogService _auditLogService;
         private readonly ManualVericationService _manualVericationService;
         private readonly IHubContext<PaymentNotificationHub> _hubContext;
+        private readonly IEmailService _emailService;
+        private readonly IConfiguration _config;
 
         public PaymentValidationService(
             ApplicationDbContext context,
             AuditLogService auditLogService,
             ManualVericationService manualVericationService,
-            IHubContext<PaymentNotificationHub> hubContext)
+            IHubContext<PaymentNotificationHub> hubContext,
+            IEmailService emailService,
+            IConfiguration config)  
         {
             _context = context;
             _auditLogService = auditLogService;
             _manualVericationService = manualVericationService;
             _hubContext = hubContext;
+            _emailService = emailService;
+            _config = config;
         }
 
         // RF 10: Busca la orden pendiente (Solo las de los últimos 30 mins)
@@ -335,6 +345,9 @@ namespace Backend_Bridge.Services
 
                 _context.SaveChanges();
 
+                // Dispara correo de sospecha
+                await SendNotificationAsync("SUSPECTED", amount, reference, order.Id);
+
                 var finalMessage =
                     "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
                     + string.Join(" | ", errors);
@@ -394,6 +407,8 @@ namespace Backend_Bridge.Services
 
                 transaction.Commit();
 
+                await SendNotificationAsync("PAID", amount, reference, order.Id);
+
                 return (true, "Pago confirmado correctamente.");
             }
             catch
@@ -401,6 +416,49 @@ namespace Backend_Bridge.Services
                 transaction.Rollback();
                 return (false, "Ocurrió un error al registrar el pago.");
             }
+        }
+
+        // ENVÍO DE CORREOS AUTOMÁTICO (HU-18)
+        private async Task SendNotificationAsync(string status, decimal amount, string reference, int orderId)
+        {
+            var adminEmail = _config["SmtpSettings:AdminEmail"];
+            if (string.IsNullOrEmpty(adminEmail)) return;
+
+            try
+            {
+                var emailDto = new EmailNotificationDto
+                {
+                    RecipientEmail = adminEmail,
+                    Amount = amount,
+                    Reference = reference,
+                    Status = status
+                };
+
+                await _emailService.SendTransactionEmailAsync(emailDto);
+
+                _context.EmailNotificationLogs.Add(new EmailNotificationLog
+                {
+                    OrderId = orderId,
+                    RecipientEmail = adminEmail,
+                    Subject = $"Aviso automático: {status}",
+                    Status = "Exitoso",
+                    SentAt = DateTime.Now
+                });
+            }
+            catch (Exception ex)
+            {
+                _context.EmailNotificationLogs.Add(new EmailNotificationLog
+                {
+                    OrderId = orderId,
+                    RecipientEmail = adminEmail,
+                    Subject = $"Aviso automático: {status}",
+                    Status = "Fallido",
+                    ErrorMessage = ex.Message,
+                    SentAt = DateTime.Now
+                });
+            }
+            // Usamos un nuevo hilo temporal para guardar esto sin afectar la transacción principal
+            await _context.SaveChangesAsync();
         }
     }
 }

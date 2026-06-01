@@ -26,6 +26,8 @@ namespace Backend_Bridge.Data
         public DbSet<DeviceHeartbeat> DeviceHeartbeats { get; set; }
         public DbSet<MonitoringHistory> MonitoringHistories { get; set; }
 
+        public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
