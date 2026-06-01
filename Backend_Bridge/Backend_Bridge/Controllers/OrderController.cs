@@ -97,7 +97,7 @@ public class OrderController : ControllerBase
 
         return Ok(order);
     }
-
+    //La vista de front
     [HttpGet]
     public IActionResult GetOrders()
     {
