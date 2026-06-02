@@ -4,6 +4,7 @@ using Backend_Bridge.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Backend_Bridge.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260602041031_Prueba2")]
+    partial class Prueba2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -261,7 +264,7 @@ namespace Backend_Bridge.Migrations
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<int?>("OrderId")
+                    b.Property<int>("OrderId")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("PaymentDate")
@@ -270,9 +273,6 @@ namespace Backend_Bridge.Migrations
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
-
-                    b.Property<int>("RiskId")
-                        .HasColumnType("int");
 
                     b.Property<string>("SenderNumber")
                         .IsRequired()
@@ -292,8 +292,6 @@ namespace Backend_Bridge.Migrations
 
                     b.HasIndex("Reference")
                         .IsUnique();
-
-                    b.HasIndex("RiskId");
 
                     b.ToTable("Payments");
                 });
@@ -322,27 +320,6 @@ namespace Backend_Bridge.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Products");
-                });
-
-            modelBuilder.Entity("Backend_Bridge.Models.Risk", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Level")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Risks");
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.SmsLog", b =>
@@ -406,27 +383,16 @@ namespace Backend_Bridge.Migrations
                 {
                     b.HasOne("Backend_Bridge.Models.Order", "Order")
                         .WithMany()
-                        .HasForeignKey("OrderId");
-
-                    b.HasOne("Backend_Bridge.Models.Risk", "Risk")
-                        .WithMany("Payment")
-                        .HasForeignKey("RiskId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Order");
-
-                    b.Navigation("Risk");
                 });
 
             modelBuilder.Entity("Backend_Bridge.Models.Order", b =>
                 {
                     b.Navigation("Details");
-                });
-
-            modelBuilder.Entity("Backend_Bridge.Models.Risk", b =>
-                {
-                    b.Navigation("Payment");
                 });
 #pragma warning restore 612, 618
         }

@@ -27,6 +27,8 @@ namespace Backend_Bridge.Data
         public DbSet<MonitoringHistory> MonitoringHistories { get; set; }
 
         public DbSet<EmailNotificationLog> EmailNotificationLogs { get; set; }
+        public DbSet<Risk> Risks { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -43,6 +45,12 @@ namespace Backend_Bridge.Data
             .WithMany()
             .HasForeignKey(m => m.OrderId)
             .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Payment>()
+                .HasOne(p => p.Risk)
+                .WithMany(r => r.Payment)
+                .HasForeignKey(p => p.RiskId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
 
     }

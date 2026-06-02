@@ -137,6 +137,30 @@ public class OrderController : ControllerBase
 
         return Ok(orders);
     }
+     // RF - Búsqueda dinámica de órdenes
+    [HttpGet("search")]
+    public IActionResult SearchOrders([FromQuery] string query)
+    {
+        var orders = _context.Orders
+            .Include(o => o.Details)
+            .Where(o =>
+                o.CustomerName.Contains(query) ||
+                o.Phone.Contains(query)
+            )
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Phone,
+                o.Amount,
+                o.Status,
+                o.CreatedAt
+            })
+            .ToList();
+
+        return Ok(orders);
+    }
 }
 
 
