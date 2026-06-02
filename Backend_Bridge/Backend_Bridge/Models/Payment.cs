@@ -11,5 +11,8 @@
         public Order Order { get; set; }
         public string Status { get; set; }
         public string VerificationResult { get; set; }
+        public int RiskId { get; set; }
+
+        public Risk Risk { get; set; }
     }
 }

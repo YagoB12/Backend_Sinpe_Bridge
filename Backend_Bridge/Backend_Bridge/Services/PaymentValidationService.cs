@@ -18,6 +18,7 @@ namespace Backend_Bridge.Services
         private readonly IHubContext<PaymentNotificationHub> _hubContext;
         private readonly IEmailService _emailService;
         private readonly IConfiguration _config;
+        private readonly RiskScoringService _riskScoringService;
 
         public PaymentValidationService(
             ApplicationDbContext context,
@@ -25,7 +26,9 @@ namespace Backend_Bridge.Services
             ManualVericationService manualVericationService,
             IHubContext<PaymentNotificationHub> hubContext,
             IEmailService emailService,
-            IConfiguration config)  
+            IConfiguration config,
+            RiskScoringService riskScoringService
+            )  
         {
             _context = context;
             _auditLogService = auditLogService;
@@ -33,6 +36,7 @@ namespace Backend_Bridge.Services
             _hubContext = hubContext;
             _emailService = emailService;
             _config = config;
+            _riskScoringService = riskScoringService;
         }
 
         // RF 10: Busca la orden pendiente (Solo las de los últimos 30 mins)
@@ -328,7 +332,9 @@ namespace Backend_Bridge.Services
                     reference,
                     order.Id
                 );
-
+                var risk = _riskScoringService.Evaluate(errors, amount);
+                _context.Risks.Add(risk);
+                _context.SaveChanges();
 
                 // HU-12: Registro en el historial como rechazado
                 var rejectedPayment = new Payment
@@ -339,11 +345,14 @@ namespace Backend_Bridge.Services
                     SenderNumber = customerPhone,
                     OrderId = order.Id,
                     Status = "Rechazado",
-                    VerificationResult = string.Join(" | ", errors)
+                    VerificationResult = string.Join(" | ", errors),
+                    Risk = risk
                 };
                 _context.Payments.Add(rejectedPayment);
 
                 _context.SaveChanges();
+
+               
 
                 // Dispara correo de sospecha
                 await SendNotificationAsync("SUSPECTED", amount, reference, order.Id);

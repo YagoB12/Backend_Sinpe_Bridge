@@ -21,6 +21,8 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 
 builder.Services.AddHostedService<DeviceMonitoringService>();
 
+builder.Services.AddScoped<RiskScoringService>();
+
 builder.Services.AddSignalR();
 
 //Conexión a base de datos
