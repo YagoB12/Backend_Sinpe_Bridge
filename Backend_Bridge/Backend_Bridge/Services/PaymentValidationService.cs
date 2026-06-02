@@ -328,13 +328,41 @@ namespace Backend_Bridge.Services
             var errors = new List<string>();
 
             // Integración DEV: Check Expired Order
-            var validateExpired = ValidateExpireOrder(payerName, reference);
-            if (!validateExpired.IsValid)
-            {
-                return validateExpired;
-            }
-
             var order = FindPendingOrder(payerName);
+
+            if (order == null)
+            {
+                var validateExpired = ValidateExpireOrder(payerName, reference);
+
+                if (!validateExpired.IsValid)
+                {
+                    return validateExpired;
+                }
+
+                var advancedPayment = new Payment
+                {
+                    Reference = reference,
+                    Amount = amount,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = customerPhone,
+                    OrderId = null,
+                    Status = "PENDING_ASSOCIATION",
+                    VerificationResult = "Pago adelantado pendiente de asociar"
+                };
+
+                _context.Payments.Add(advancedPayment);
+
+                _auditLogService.Register(
+                    "PAGO_ADELANTADO_REGISTRADO",
+                    "Se recibió un pago antes de que existiera una orden. Queda pendiente de asociación.",
+                    reference,
+                    null
+                );
+
+                _context.SaveChanges();
+
+                return (true, "Pago adelantado registrado correctamente.");
+            }
 
             if (order == null)
             {

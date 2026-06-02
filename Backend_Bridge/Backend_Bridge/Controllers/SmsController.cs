@@ -48,7 +48,13 @@ namespace Backend_Bridge.Controllers
                 return BadRequest("Remitente no válido.");
 
             if (!_smsService.IsValidSinpeMessage(request.Message))
-                return BadRequest("Mensaje no corresponde a SINPE.");
+            {
+                return Ok(new
+                {
+                    message = "Mensaje ignorado: no corresponde a un pago SINPE.",
+                    ignored = true
+                });
+            }
 
             // =========================
             // GUARDAR SMS
