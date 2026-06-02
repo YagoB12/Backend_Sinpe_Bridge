@@ -105,6 +105,14 @@ namespace Backend_Bridge.Controllers
             });
         }
 
+
+        [HttpGet("payments/details")]
+        public IActionResult GetPaymentsDetails()
+        {
+            return Ok(_paymentValidationService.GetPaymentsDetails());
+        }
+
+
         // =========================
         // DEBUG / CONSULTA
         // =========================

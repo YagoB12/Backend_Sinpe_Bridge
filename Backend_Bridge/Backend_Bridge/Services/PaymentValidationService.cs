@@ -7,6 +7,7 @@ using Backend_Bridge.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 
 namespace Backend_Bridge.Services
 {
@@ -259,6 +260,28 @@ namespace Backend_Bridge.Services
             }
 
             _context.SaveChanges();
+        }
+
+        //nuevo metodo
+        public object GetPaymentsDetails()
+        {
+            return _context.Payments
+                .Include(p => p.Order)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.Reference,
+                    p.Amount,
+                    p.PaymentDate,
+                    p.Status,
+                    p.VerificationResult,
+                    p.SenderNumber,
+
+                    CustomerName = p.Order.CustomerName,
+                    CustomerPhone = p.Order.Phone
+                })
+                .OrderByDescending(p => p.PaymentDate)
+                .ToList();
         }
 
         // Valida si la referencia ya fue usada. (HU-12 + HU-13)
