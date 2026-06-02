@@ -69,6 +69,26 @@ public class OrderController : ControllerBase
         _context.Orders.Add(order);
         _context.SaveChanges();
 
+        var advancedPayment = _context.Payments
+    .Where(p =>
+        p.Status == "PENDING_ASSOCIATION" &&
+        p.Amount == order.Amount &&
+        p.SenderNumber == order.Phone &&
+        p.OrderId == null)
+    .OrderByDescending(p => p.PaymentDate)
+    .FirstOrDefault();
+
+        if (advancedPayment != null)
+        {
+            advancedPayment.OrderId = order.Id;
+            advancedPayment.Status = "Aprobado";
+            advancedPayment.VerificationResult = "Pago adelantado asociado automáticamente";
+
+            order.Status = "PAID";
+
+            _context.SaveChanges();
+        }
+
         return Ok(order);
     }
         // RF 09 conssulta rapida (Ver ordenes pedientes)

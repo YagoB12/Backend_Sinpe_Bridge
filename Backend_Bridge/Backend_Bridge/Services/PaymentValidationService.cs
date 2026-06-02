@@ -310,7 +310,31 @@ namespace Backend_Bridge.Services
             var order = FindPendingOrder(payerName);
 
             if (order == null)
-                return (false, "No existe una orden pendiente para este cliente.");
+            {
+                var advancedPayment = new Payment
+                {
+                    Reference = reference,
+                    Amount = amount,
+                    PaymentDate = DateTime.Now,
+                    SenderNumber = customerPhone,
+                    OrderId = null,
+                    Status = "PENDING_ASSOCIATION",
+                    VerificationResult = "Pago adelantado pendiente de asociar"
+                };
+
+                _context.Payments.Add(advancedPayment);
+
+                _auditLogService.Register(
+                    "PAGO_ADELANTADO_REGISTRADO",
+                    "Se recibió un pago antes de que existiera una orden. Queda pendiente de asociación.",
+                    reference,
+                    null
+                );
+
+                _context.SaveChanges();
+
+                return (true, "Pago adelantado registrado correctamente.");
+            }
 
             // HU-13: Pasando el Amount
             ValidateCustomerPhone(order, customerPhone, reference, amount, errors);
