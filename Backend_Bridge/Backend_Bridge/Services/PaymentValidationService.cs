@@ -1,13 +1,9 @@
-﻿using Backend_Bridge.Data;
-using Backend_Bridge.DTO;
-using Backend_Bridge.DTOs;
+using Backend_Bridge.Constants;
+using Backend_Bridge.Data;
 using Backend_Bridge.Hubs;
 using Backend_Bridge.Models;
-using Backend_Bridge.Services.Interfaces;
+using Backend_Bridge.Services.Payments;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Configuration;
-using System.Globalization;
-using Microsoft.EntityFrameworkCore;
 
 namespace Backend_Bridge.Services
 {
@@ -16,436 +12,153 @@ namespace Backend_Bridge.Services
         private readonly ApplicationDbContext _context;
         private readonly AuditLogService _auditLogService;
         private readonly ManualVericationService _manualVericationService;
-        private readonly IHubContext<PaymentNotificationHub> _hubContext;
-        private readonly IEmailService _emailService;
-        private readonly IConfiguration _config;
         private readonly RiskScoringService _riskScoringService;
+        private readonly IHubContext<PaymentNotificationHub> _hubContext;
+        private readonly FraudAuditService _fraudAuditService;
+        private readonly OrderLookupService _orderLookupService;
+        private readonly PaymentRuleValidator _paymentRuleValidator;
+        private readonly PaymentRecordService _paymentRecordService;
+        private readonly PaymentNotificationService _paymentNotificationService;
+        private readonly PaymentQueryService _paymentQueryService;
 
         public PaymentValidationService(
             ApplicationDbContext context,
             AuditLogService auditLogService,
             ManualVericationService manualVericationService,
+            RiskScoringService riskScoringService,
             IHubContext<PaymentNotificationHub> hubContext,
-            IEmailService emailService,
-            IConfiguration config,
-            RiskScoringService riskScoringService
-            )  
+            FraudAuditService fraudAuditService,
+            OrderLookupService orderLookupService,
+            PaymentRuleValidator paymentRuleValidator,
+            PaymentRecordService paymentRecordService,
+            PaymentNotificationService paymentNotificationService,
+            PaymentQueryService paymentQueryService)
         {
             _context = context;
             _auditLogService = auditLogService;
             _manualVericationService = manualVericationService;
-            _hubContext = hubContext;
-            _emailService = emailService;
-            _config = config;
             _riskScoringService = riskScoringService;
+            _hubContext = hubContext;
+            _fraudAuditService = fraudAuditService;
+            _orderLookupService = orderLookupService;
+            _paymentRuleValidator = paymentRuleValidator;
+            _paymentRecordService = paymentRecordService;
+            _paymentNotificationService = paymentNotificationService;
+            _paymentQueryService = paymentQueryService;
         }
 
-        // RF 10: Busca la orden pendiente (Solo las de los últimos 30 mins)
-        private Order? FindPendingOrder(string payerName)
-        {
-            return _context.Orders
-                .Where(o =>
-                    o.CustomerName == payerName &&
-                    o.Status == "PENDING" &&
-                    DateTime.Now <= o.CreatedAt.AddMinutes(30))
-                .OrderByDescending(o => o.CreatedAt)
-                .FirstOrDefault();
-        }
-
-        // Valida que el teléfono coincida con la orden.
-        private void ValidateCustomerPhone(
-            Order order,
-            string customerPhone,
-            string reference,
-            decimal amount, // HU-13
-            List<string> errors)
-        {
-            if (NormalizePhone(order.Phone) == NormalizePhone(customerPhone))
-                return;
-
-            errors.Add("El número de origen del pago no coincide con el número registrado en la orden.");
-
-            RegisterFraudAndAudit(
-                reference,
-                amount, // HU-13
-                "Teléfono del cliente no coincide",
-                "TELEFONO_NO_COINCIDE",
-                "El número de origen del pago no coincide con el número registrado en la orden.",
-                order.Id
-            );
-        }
-
-        // Valida que la referencia tenga una fecha reciente.
-        private void ValidateTimeReference(
-            string reference,
-            Order order,
-            decimal amount, // HU-13
-            List<string> errors)
-        {
-            if (string.IsNullOrWhiteSpace(reference) || reference.Length < 14)
-            {
-                errors.Add("La referencia no contiene una fecha válida.");
-                RegisterFraudAndAudit(reference, amount, "Fecha de referencia inválida", "FECHA_REFERENCIA_INVALIDA", "La referencia no contiene una fecha válida.", order.Id);
-                return;
-            }
-
-            string datePart = reference.Substring(0, 14);
-
-            bool isValidDate = DateTime.TryParseExact(
-                datePart,
-                "yyyyMMddHHmmss",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out DateTime paymentDate
-            );
-
-            if (!isValidDate)
-            {
-                errors.Add("La referencia no contiene una fecha válida.");
-                RegisterFraudAndAudit(reference, amount, "Fecha de referencia inválida", "FECHA_REFERENCIA_INVALIDA", "La referencia no contiene una fecha válida.", order.Id);
-                return;
-            }
-
-            DateTime paymentDateUtc = DateTime.SpecifyKind(paymentDate, DateTimeKind.Utc);
-
-            TimeSpan difference = paymentDateUtc - order.CreatedAt;
-            // Integración DEV (ManualVerification) + HU-13 (Fraud)
-            if (difference.TotalMinutes > 15 && difference.TotalMinutes < 30)
-            {
-                var message = $"Pago sospechoso. Han pasado {(int)difference.TotalMinutes} minutos.";
-                errors.Add(message);
-
-                RegisterFraudAndAudit(reference, amount, "Pago fuera de tiempo", "PAGO_FUERA_DE_TIEMPO", message, order.Id);
-            }
-        }
-
-        // Valida que el monto coincida con la orden.
-        private void ValidateOrderAmount(
-            Order order,
-            decimal amount,
-            string reference,
-            List<string> errors)
-        {
-            if (order.Amount == amount)
-                return;
-
-            errors.Add("El monto no coincide con la orden.");
-
-            RegisterFraudAndAudit(
-                reference,
-                amount, // HU-13
-                "Monto incorrecto",
-                "MONTO_INCORRECTO",
-                "El monto recibido no coincide con el monto registrado en la orden.",
-                order.Id
-            );
-        }
-
-        // Valida que la orden siga pendiente.
-        private void ValidateOrderStatus(
-            Order order,
-            string reference,
-            List<string> errors)
-        {
-            if (order.Status == "PENDING")
-                return;
-
-            errors.Add("La orden ya fue procesada.");
-
-            _auditLogService.Register(
-                "ORDEN_YA_PROCESADA",
-                "La orden ya fue procesada previamente.",
-                reference,
-                order.Id
-            );
-        }
-
-        // Integración DEV: Verifica si la orden ya había expirado
-        private (bool IsValid, string Message) ValidateExpireOrder(string payerName, string reference)
-        {
-            var expiredOrder = _context.Orders
-                .Where(o =>
-                    o.CustomerName == payerName &&
-                    o.Status == "EXPIRED")
-                .OrderByDescending(o => o.CreatedAt)
-                .FirstOrDefault();
-
-            if (expiredOrder != null)
-            {
-                _auditLogService.Register(
-                    "PAGO_RECIBIDO_ORDEN_EXPIRADA",
-                    "Se recibió un pago para una orden expirada. El pago no fue asociado.",
-                    reference,
-                    expiredOrder.Id
-                );
-
-                return (false, "La orden ya expiró. Debe crear una nueva orden.");
-            }
-            return (true, "La orden no expirada");
-        }
-
-        // Verifica si la referencia existe en pagos.
-        private bool IsReferenceDuplicated(string reference)
-        {
-            return _context.Payments.Any(p => p.Reference == reference);
-        }
-
-        // Registra intento sospechoso y auditoría (HU-13: Recibe el monto)
-        private void RegisterFraudAndAudit(
-            string reference,
-            decimal amount, // HU-13
-            string fraudType,
-            string auditAction,
-            string auditDescription,
-            int? orderId = null)
-        {
-            var fraud = new FraudAttempt
-            {
-                Reference = reference,
-                Amount = amount, // HU-13
-                FraudType = fraudType,
-                AttemptDate = DateTime.Now
-            };
-
-            _context.FraudAttempts.Add(fraud);
-
-            _auditLogService.Register(
-                auditAction,
-                auditDescription,
-                reference,
-                orderId
-            );
-        }
-
-        // Consulta intentos sospechosos.
         public IEnumerable<FraudAttempt> GetFraudLogs()
         {
-            return _context.FraudAttempts.ToList();
+            return _paymentQueryService.GetFraudLogs();
         }
 
-        // Consulta pagos registrados.
         public IEnumerable<Payment> GetPayments()
         {
-            return _context.Payments.ToList();
+            return _paymentQueryService.GetPayments();
         }
 
-        // Normaliza números telefónicos.
-        private string NormalizePhone(string phone)
-        {
-            if (string.IsNullOrWhiteSpace(phone))
-                return string.Empty;
-
-            return new string(phone.Where(char.IsDigit).ToArray());
-        }
-
-        // Integración DEV: Expira órdenes viejas (RF-10)
-        public void ExpirePendingOrders()
-        {
-            var expiredOrders = _context.Orders
-                .Where(o =>
-                    o.Status == "PENDING" &&
-                    DateTime.Now > o.CreatedAt.AddMinutes(30))
-                .ToList();
-
-            foreach (var order in expiredOrders)
-            {
-                order.Status = "EXPIRED";
-
-                _auditLogService.Register(
-                    "ORDEN_EXPIRADA",
-                    "La orden expiró automáticamente después de 30 minutos sin pago.",
-                    null,
-                    order.Id
-                );
-            }
-
-            _context.SaveChanges();
-        }
-
-        //nuevo metodo
         public object GetPaymentsDetails()
         {
-            return _context.Payments
-                .Include(p => p.Order)
-                .Select(p => new
-                {
-                    p.Id,
-                    p.Reference,
-                    p.Amount,
-                    p.PaymentDate,
-                    p.Status,
-                    p.VerificationResult,
-                    p.SenderNumber,
-
-                    CustomerName = p.Order.CustomerName,
-                    CustomerPhone = p.Order.Phone
-                })
-                .OrderByDescending(p => p.PaymentDate)
-                .ToList();
+            return _paymentQueryService.GetPaymentsDetails();
         }
 
-        // Valida si la referencia ya fue usada. (HU-12 + HU-13)
+        public void ExpirePendingOrders()
+        {
+            _orderLookupService.ExpirePendingOrders();
+        }
+
         public (bool IsValid, string Message) ValidateReference(string reference)
         {
-            if (IsReferenceDuplicated(reference))
-            {
-                RegisterFraudAndAudit(
-                    reference,
-                    0, // HU-13: Temporalmente 0
-                    "Referencia duplicada",
-                    "REFERENCIA_DUPLICADA",
-                    "Se detectó un intento de pago con una referencia ya utilizada."
-                );
+            if (!_context.Payments.Any(p => p.Reference == reference))
+                return (true, "Referencia válida.");
 
-                // HU-12: Registro en el historial como rechazado
-                var rejectedPayment = new Payment
-                {
-                    Reference = reference,
-                    Amount = 0,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = "Desconocido",
-                    OrderId = 0,
-                    Status = "Rechazado",
-                    VerificationResult = "Referencia duplicada"
-                };
-                _context.Payments.Add(rejectedPayment);
+            _fraudAuditService.Register(
+                reference,
+                0,
+                "Referencia duplicada",
+                "REFERENCIA_DUPLICADA",
+                "Se detectó un intento de pago con una referencia ya utilizada."
+            );
 
-                _context.SaveChanges();
+            _paymentRecordService.RegisterRejectedDuplicateReference(reference);
 
-                return (false, "La referencia ya fue utilizada.");
-            }
-
-            return (true, "Referencia válida.");
+            return (false, "La referencia ya fue utilizada.");
         }
 
-        // Ejecuta el flujo principal de validación del pago. (Integra todo)
         public async Task<(bool IsValid, string Message)> ValidateAmount(
             decimal amount,
             string payerName,
             string reference,
             string customerPhone)
         {
-            var errors = new List<string>();
-
-            // Integración DEV: Check Expired Order
-            var order = FindPendingOrder(payerName);
+            var order = _orderLookupService.FindPendingOrder(payerName);
 
             if (order == null)
-            {
-                var validateExpired = ValidateExpireOrder(payerName, reference);
+                return RegisterAdvancedPaymentOrRejectExpiredOrder(amount, payerName, reference, customerPhone);
 
-                if (!validateExpired.IsValid)
-                {
-                    return validateExpired;
-                }
-
-                var advancedPayment = new Payment
-                {
-                    Reference = reference,
-                    Amount = amount,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = customerPhone,
-                    OrderId = null,
-                    Status = "PENDING_ASSOCIATION",
-                    VerificationResult = "Pago adelantado pendiente de asociar"
-                };
-
-                _context.Payments.Add(advancedPayment);
-
-                _auditLogService.Register(
-                    "PAGO_ADELANTADO_REGISTRADO",
-                    "Se recibió un pago antes de que existiera una orden. Queda pendiente de asociación.",
-                    reference,
-                    null
-                );
-
-                _context.SaveChanges();
-
-                return (true, "Pago adelantado registrado correctamente.");
-            }
-
-            if (order == null)
-            {
-                var advancedPayment = new Payment
-                {
-                    Reference = reference,
-                    Amount = amount,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = customerPhone,
-                    OrderId = null,
-                    Status = "PENDING_ASSOCIATION",
-                    VerificationResult = "Pago adelantado pendiente de asociar"
-                };
-
-                _context.Payments.Add(advancedPayment);
-
-                _auditLogService.Register(
-                    "PAGO_ADELANTADO_REGISTRADO",
-                    "Se recibió un pago antes de que existiera una orden. Queda pendiente de asociación.",
-                    reference,
-                    null
-                );
-
-                _context.SaveChanges();
-
-                return (true, "Pago adelantado registrado correctamente.");
-            }
-
-            // HU-13: Pasando el Amount
-            ValidateCustomerPhone(order, customerPhone, reference, amount, errors);
-            ValidateTimeReference(reference, order, amount, errors);
-            ValidateOrderAmount(order, amount, reference, errors);
-            ValidateOrderStatus(order, reference, errors);
+            var errors = _paymentRuleValidator.Validate(order, amount, reference, customerPhone);
 
             if (errors.Any())
-            {
-                order.Status = "SUSPECTED";
-
-                _auditLogService.Register(
-                    "ORDEN_SUSPENDIDA",
-                    "La orden fue suspendida por fallos de validación. Debe crear la orden nuevamente.",
-                    reference,
-                    order.Id
-                );
-                var risk = _riskScoringService.Evaluate(errors, amount);
-                _context.Risks.Add(risk);
-                _context.SaveChanges();
-
-                // HU-12: Registro en el historial como rechazado
-                var rejectedPayment = new Payment
-                {
-                    Reference = reference,
-                    Amount = amount,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = customerPhone,
-                    OrderId = order.Id,
-                    Status = "Rechazado",
-                    VerificationResult = string.Join(" | ", errors),
-                    Risk = risk
-                };
-                _context.Payments.Add(rejectedPayment);
-
-                _context.SaveChanges();
-
-               
-
-                // Dispara correo de sospecha
-                await SendNotificationAsync("SUSPECTED", amount, reference, order.Id);
-
-                var finalMessage =
-                    "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: "
-                    + string.Join(" | ", errors);
-
-                _manualVericationService.Register("SUSPECTED", string.Join(" | ", errors), order.Id);
-
-                return (false, finalMessage);
-
-            }
+                return await RejectSuspiciousPayment(order, amount, reference, customerPhone, errors);
 
             return await ConfirmPayment(order, amount, reference, customerPhone);
         }
 
-        // Confirma el pago y notifica al POS. (HU-12)
+        private (bool IsValid, string Message) RegisterAdvancedPaymentOrRejectExpiredOrder(
+            decimal amount,
+            string payerName,
+            string reference,
+            string customerPhone)
+        {
+            var expiredValidation = _orderLookupService.ValidateExpiredOrder(payerName, reference);
+
+            if (!expiredValidation.IsValid)
+                return expiredValidation;
+
+            _paymentRecordService.RegisterAdvancedPayment(amount, reference, customerPhone);
+
+            return (true, "Pago adelantado registrado correctamente.");
+        }
+
+        private async Task<(bool IsValid, string Message)> RejectSuspiciousPayment(
+            Order order,
+            decimal amount,
+            string reference,
+            string customerPhone,
+            List<string> errors)
+        {
+            order.Status = OrderStatuses.Suspected;
+
+            _auditLogService.Register(
+                "ORDEN_SUSPENDIDA",
+                "La orden fue suspendida por fallos de validación. Debe crear la orden nuevamente.",
+                reference,
+                order.Id
+            );
+
+            var risk = _riskScoringService.Evaluate(errors, amount);
+            _context.Risks.Add(risk);
+            _context.SaveChanges();
+
+            _paymentRecordService.RegisterRejectedPayment(order, amount, reference, customerPhone, risk, errors);
+
+            await _paymentNotificationService.SendTransactionNotificationAsync(
+                OrderStatuses.Suspected,
+                amount,
+                reference,
+                order.Id
+            );
+
+            var errorMessage = string.Join(" | ", errors);
+
+            _manualVericationService.Register(OrderStatuses.Suspected, errorMessage, order.Id);
+
+            return (
+                false,
+                "La orden fue suspendida por errores de validación. Debe crear la orden nuevamente. Errores: " + errorMessage
+            );
+        }
+
         private async Task<(bool IsValid, string Message)> ConfirmPayment(
             Order order,
             decimal amount,
@@ -456,21 +169,9 @@ namespace Backend_Bridge.Services
 
             try
             {
-                order.Status = "PAID";
+                order.Status = OrderStatuses.Paid;
 
-                var payment = new Payment
-                {
-                    Reference = reference,
-                    Amount = amount,
-                    PaymentDate = DateTime.Now,
-                    SenderNumber = customerPhone,
-                    OrderId = order.Id,
-                    Status = "Aprobado", // HU-12
-                    VerificationResult = "Pago exitoso" // HU-12
-                };
-
-                _context.Payments.Add(payment);
-                _context.SaveChanges();
+                _paymentRecordService.RegisterApprovedPayment(order, amount, reference, customerPhone);
 
                 _auditLogService.Register(
                     "PAGO_CONFIRMADO",
@@ -491,7 +192,12 @@ namespace Backend_Bridge.Services
 
                 transaction.Commit();
 
-                await SendNotificationAsync("PAID", amount, reference, order.Id);
+                await _paymentNotificationService.SendTransactionNotificationAsync(
+                    OrderStatuses.Paid,
+                    amount,
+                    reference,
+                    order.Id
+                );
 
                 return (true, "Pago confirmado correctamente.");
             }
@@ -500,49 +206,6 @@ namespace Backend_Bridge.Services
                 transaction.Rollback();
                 return (false, "Ocurrió un error al registrar el pago.");
             }
-        }
-
-        // ENVÍO DE CORREOS AUTOMÁTICO (HU-18)
-        private async Task SendNotificationAsync(string status, decimal amount, string reference, int orderId)
-        {
-            var adminEmail = _config["SmtpSettings:AdminEmail"];
-            if (string.IsNullOrEmpty(adminEmail)) return;
-
-            try
-            {
-                var emailDto = new EmailNotificationDto
-                {
-                    RecipientEmail = adminEmail,
-                    Amount = amount,
-                    Reference = reference,
-                    Status = status
-                };
-
-                await _emailService.SendTransactionEmailAsync(emailDto);
-
-                _context.EmailNotificationLogs.Add(new EmailNotificationLog
-                {
-                    OrderId = orderId,
-                    RecipientEmail = adminEmail,
-                    Subject = $"Aviso automático: {status}",
-                    Status = "Exitoso",
-                    SentAt = DateTime.Now
-                });
-            }
-            catch (Exception ex)
-            {
-                _context.EmailNotificationLogs.Add(new EmailNotificationLog
-                {
-                    OrderId = orderId,
-                    RecipientEmail = adminEmail,
-                    Subject = $"Aviso automático: {status}",
-                    Status = "Fallido",
-                    ErrorMessage = ex.Message,
-                    SentAt = DateTime.Now
-                });
-            }
-            // Usamos un nuevo hilo temporal para guardar esto sin afectar la transacción principal
-            await _context.SaveChangesAsync();
         }
     }
 }

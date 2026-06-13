@@ -1,3 +1,4 @@
+using Backend_Bridge.DTOs;
 using Backend_Bridge.Models;
 using Backend_Bridge.Services;
 using Backend_Bridge.Services.Interfaces;
@@ -32,9 +33,6 @@ namespace Backend_Bridge.Controllers
             // =========================
             // VALIDACIONES INICIALES
             // =========================
-            if (string.IsNullOrWhiteSpace(request.CustomerPhone))
-                return BadRequest("El número de teléfono del cliente es obligatorio.");
-
             if (request == null)
                 return BadRequest("La solicitud no puede estar vacía.");
 
@@ -64,7 +62,26 @@ namespace Backend_Bridge.Controllers
             // =========================
             // PARSEAR SMS (RF-02)
             // =========================
-            var parsedSms = _smsParserService.Parse(request.Message);
+            ParsedSmsDto parsedSms;
+            try
+            {
+                parsedSms = _smsParserService.Parse(request.Message);
+            }
+            catch (FormatException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+
+            var customerPhone = !string.IsNullOrWhiteSpace(request.CustomerPhone)
+                ? request.CustomerPhone
+                : parsedSms.SenderPhone;
+
+            if (string.IsNullOrWhiteSpace(customerPhone))
+                return BadRequest("El número de teléfono del cliente es obligatorio.");
 
             // =========================
             // EXPIRAR ÓRDENES VENCIDAS
@@ -90,7 +107,7 @@ namespace Backend_Bridge.Controllers
                 parsedSms.Amount,
                 parsedSms.PayerName,
                 parsedSms.Reference,
-                request.CustomerPhone
+                customerPhone
             );
 
             if (!amountValidation.IsValid)

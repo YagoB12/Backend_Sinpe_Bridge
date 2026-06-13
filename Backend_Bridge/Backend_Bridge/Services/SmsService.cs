@@ -15,6 +15,8 @@ namespace Backend_Bridge.Services
         private readonly List<string> SinpeSenders = new()
         {
             "SINPE",
+            "BN",
+            "BN SINPE MOVIL",
             "Banco Nacional",
             "BAC",
             "BCR"

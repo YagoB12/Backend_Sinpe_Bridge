@@ -16,6 +16,7 @@ namespace Backend_Bridge.Services
 
             var amount = ExtractAmount(messageBody);
             var payerName = ExtractPayerName(messageBody);
+            var senderPhone = ExtractSenderPhone(messageBody);
             var reference = ExtractReference(messageBody);
 
             ValidateParsedData(amount, payerName, reference);
@@ -24,6 +25,7 @@ namespace Backend_Bridge.Services
             {
                 Amount = amount,
                 PayerName = payerName,
+                SenderPhone = senderPhone,
                 Reference = reference
             };
         }
@@ -37,7 +39,7 @@ namespace Backend_Bridge.Services
 
             var match = Regex.Match(
                 messageBody,
-                @"(?:₡|CRC\s?)\s?([\d,]+(?:\.\d{1,2})?)",
+                @"(?:₡|CRC\s?)\s?([\d.,]+)|(?:recibido|recibió)\s+([\d.,]+)\s+colones",
                 RegexOptions.IgnoreCase
             );
 
@@ -46,9 +48,13 @@ namespace Backend_Bridge.Services
                 throw new FormatException("No se pudo extraer el monto del SMS.");
             }
 
-            var rawAmount = match.Groups[1].Value.Replace(",", "").Trim();
+            var rawAmount = match.Groups[1].Success
+                ? match.Groups[1].Value.Trim()
+                : match.Groups[2].Value.Trim();
 
-            if (!decimal.TryParse(rawAmount, out var amount))
+            rawAmount = NormalizeAmount(rawAmount);
+
+            if (!decimal.TryParse(rawAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
             {
                 throw new FormatException("El monto extraído no tiene un formato válido.");
             }
@@ -65,7 +71,7 @@ namespace Backend_Bridge.Services
 
             var match = Regex.Match(
                 messageBody,
-                @"(?:de|por parte de)\s+([A-Za-zÁÉÍÓÚáéíóúÑñ\s]+?)(?=\.|,|Ref|Referencia|Comprobante|$)",
+                @"(?:de|por parte de)\s+([A-Za-zÁÉÍÓÚáéíóúÑñ\s]+?)(?=\.\s*(?:plata|Referencia)|\.|,|Ref|Referencia|Comprobante|$)",
                 RegexOptions.IgnoreCase
             );
 
@@ -75,6 +81,22 @@ namespace Backend_Bridge.Services
             }
 
             return match.Groups[1].Value.Trim();
+        }
+
+        private string ExtractSenderPhone(string messageBody)
+        {
+            if (string.IsNullOrWhiteSpace(messageBody))
+            {
+                throw new ArgumentException("El mensaje SMS no puede estar vacío.");
+            }
+
+            var match = Regex.Match(
+                messageBody,
+                @"\b(?:plata|telefono|tel[eé]fono|celular)\s*-?\s*(\d{8})\b",
+                RegexOptions.IgnoreCase
+            );
+
+            return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
         }
 
         private string ExtractReference(string messageBody)
@@ -117,6 +139,28 @@ namespace Backend_Bridge.Services
             {
                 throw new FormatException("La referencia SINPE debe contener exactamente 25 dígitos.");
             }
+        }
+
+        private static string NormalizeAmount(string rawAmount)
+        {
+            rawAmount = rawAmount.Trim();
+
+            if (rawAmount.Contains('.') && rawAmount.Contains(','))
+            {
+                return rawAmount.LastIndexOf(',') > rawAmount.LastIndexOf('.')
+                    ? rawAmount.Replace(".", "").Replace(",", ".")
+                    : rawAmount.Replace(",", "");
+            }
+
+            if (rawAmount.Contains(','))
+            {
+                var decimals = rawAmount.Length - rawAmount.LastIndexOf(',') - 1;
+                return decimals == 2
+                    ? rawAmount.Replace(",", ".")
+                    : rawAmount.Replace(",", "");
+            }
+
+            return rawAmount;
         }
     }
 }

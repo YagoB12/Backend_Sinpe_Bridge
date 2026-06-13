@@ -6,6 +6,8 @@
 
         public string PayerName { get; set; } = string.Empty;
 
+        public string SenderPhone { get; set; } = string.Empty;
+
         public string Reference { get; set; } = string.Empty;
     }
 }

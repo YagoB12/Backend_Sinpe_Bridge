@@ -1,6 +1,8 @@
 ﻿using Backend_Bridge.Data;
 using Backend_Bridge.Services;
 using Backend_Bridge.Services.Interfaces;
+using Backend_Bridge.Services.Orders;
+using Backend_Bridge.Services.Payments;
 using Microsoft.EntityFrameworkCore;
 using Backend_Bridge.Hubs;
 
@@ -22,6 +24,13 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddHostedService<DeviceMonitoringService>();
 
 builder.Services.AddScoped<RiskScoringService>();
+builder.Services.AddScoped<FraudAuditService>();
+builder.Services.AddScoped<OrderLookupService>();
+builder.Services.AddScoped<PaymentRuleValidator>();
+builder.Services.AddScoped<PaymentRecordService>();
+builder.Services.AddScoped<PaymentNotificationService>();
+builder.Services.AddScoped<PaymentQueryService>();
+builder.Services.AddScoped<OrderService>();
 
 builder.Services.AddSignalR();
 
